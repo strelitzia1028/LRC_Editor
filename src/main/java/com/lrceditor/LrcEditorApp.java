@@ -167,6 +167,10 @@ public class LrcEditorApp extends Application {
 
         stage.setTitle("LRC 歌词编辑器");
         stage.setScene(scene);
+        var windowIcon = LrcEditorApp.class.getResource("/icons/lrc-editor-256.png");
+        if (windowIcon != null) {
+            stage.getIcons().add(new Image(windowIcon.toExternalForm()));
+        }
         stage.setResizable(true);
         stage.setMinWidth(900);
         stage.setMinHeight(620);
