@@ -46,6 +46,9 @@ public class LyricEditorView extends ListView<LyricLine> {
     /** 是否自动选择相同时间戳的所有行（单击某行即选中整组）。默认关 */
     private boolean autoSelectSameTimestamp = false;
 
+    /** 深色外观。 */
+    private boolean darkMode = false;
+
     /** 当前应该高亮的所有行索引 */
     private Set<Integer> playingIndices = Collections.emptySet();
 
@@ -229,6 +232,11 @@ public class LyricEditorView extends ListView<LyricLine> {
         this.autoSelectSameTimestamp = enabled;
     }
 
+    public void setDarkMode(boolean darkMode) {
+        this.darkMode = darkMode;
+        refresh();
+    }
+
     // ============================================================
     // 外部（播放时间）驱动的高亮
     // ============================================================
@@ -293,10 +301,29 @@ public class LyricEditorView extends ListView<LyricLine> {
         return String.format(Locale.ROOT, "rgba(%d,%d,%d,%.2f)", r, g, b, a);
     }
 
-    private String selBgColor()     { return rgba(219, 234, 254, selectedHighlightOpacity); }
-    private String selPlayBgColor() { return rgba(191, 219, 254, selectedHighlightOpacity); }
-    private String playBgColor()    { return rgba(254, 243, 199, playingHighlightOpacity); }
-    private String playBorderColor(){ return rgba(253, 230, 138, playingHighlightOpacity); }
+    private String selBgColor() {
+        return darkMode
+                ? rgba(37, 99, 235, selectedHighlightOpacity * 0.48)
+                : rgba(219, 234, 254, selectedHighlightOpacity);
+    }
+
+    private String selPlayBgColor() {
+        return darkMode
+                ? rgba(59, 130, 246, selectedHighlightOpacity * 0.62)
+                : rgba(191, 219, 254, selectedHighlightOpacity);
+    }
+
+    private String playBgColor() {
+        return darkMode
+                ? rgba(146, 64, 14, playingHighlightOpacity * 0.62)
+                : rgba(254, 243, 199, playingHighlightOpacity);
+    }
+
+    private String playBorderColor() {
+        return darkMode
+                ? rgba(251, 191, 36, playingHighlightOpacity * 0.72)
+                : rgba(253, 230, 138, playingHighlightOpacity);
+    }
 
     private void styleCell(ListCell<?> c) {
         int i = c.getIndex();
@@ -312,7 +339,9 @@ public class LyricEditorView extends ListView<LyricLine> {
         boolean selVisible  = selectedHighlightOpacity > 0.001;
         boolean playVisible = playingHighlightOpacity  > 0.001;
 
-        String altBg = (i % 2 == 0) ? "#f8fafc" : "#ffffff";
+        String altBg = darkMode
+                ? ((i % 2 == 0) ? "#0f172a" : "#111827")
+                : ((i % 2 == 0) ? "#f8fafc" : "#ffffff");
 
         String bg;
         if (selected && playing && selVisible) {
@@ -348,7 +377,11 @@ public class LyricEditorView extends ListView<LyricLine> {
     // ============================================================
     private String idleBorderColor() {
         if (borderOpacity <= 0.001) return "transparent";
-        return "rgba(203,213,225," + String.format(Locale.ROOT, "%.2f", borderOpacity) + ")";
+        int r = darkMode ? 71 : 203;
+        int g = darkMode ? 85 : 213;
+        int b = darkMode ? 105 : 225;
+        return "rgba(" + r + "," + g + "," + b + ","
+               + String.format(Locale.ROOT, "%.2f", borderOpacity) + ")";
     }
 
     private String buildIdleTimeStyle() {
@@ -357,7 +390,7 @@ public class LyricEditorView extends ListView<LyricLine> {
                 "-fx-border-width:1;" +
                 "-fx-border-radius:3;" +
                 "-fx-font-family:'Consolas',monospace;" +
-                "-fx-text-fill:#2563eb;" +
+                "-fx-text-fill:" + (darkMode ? "#60a5fa" : "#2563eb") + ";" +
                 "-fx-font-size:18px;";
     }
 
@@ -382,6 +415,24 @@ public class LyricEditorView extends ListView<LyricLine> {
                     "-fx-border-color:#3b82f6;" +
                     "-fx-border-width:1.5;" +
                     "-fx-border-radius:3;";
+
+    private String buildEditTimeStyle() {
+        return "-fx-background-color:" + (darkMode ? "#111827" : "white") + ";" +
+                "-fx-border-color:" + (darkMode ? "#60a5fa" : "#3b82f6") + ";" +
+                "-fx-border-width:1.5;" +
+                "-fx-border-radius:3;" +
+                "-fx-font-family:'Consolas',monospace;" +
+                "-fx-text-fill:" + (darkMode ? "#93c5fd" : "#2563eb") + ";" +
+                "-fx-font-size:18px;";
+    }
+
+    private String buildEditTextStyle() {
+        return "-fx-background-color:" + (darkMode ? "#111827" : "white") + ";" +
+                "-fx-border-color:" + (darkMode ? "#60a5fa" : "#3b82f6") + ";" +
+                "-fx-border-width:1.5;" +
+                "-fx-border-radius:3;" +
+                "-fx-text-fill:" + (darkMode ? "#e5e7eb" : "#111827") + ";";
+    }
 
     // ============================================================
     // 组首判断
@@ -487,11 +538,11 @@ public class LyricEditorView extends ListView<LyricLine> {
             layout.setPadding(new Insets(0, 4, 0, 0));
 
             timeField.focusedProperty().addListener((o, ov, nv) -> {
-                timeField.setStyle(nv ? EDIT_STYLE_TIME : buildIdleTimeStyle());
+                timeField.setStyle(nv ? buildEditTimeStyle() : buildIdleTimeStyle());
                 if (nv) beginEdit(); else endEditAndExit();
             });
             textField.focusedProperty().addListener((o, ov, nv) -> {
-                textField.setStyle(nv ? EDIT_STYLE_TEXT : buildIdleTextStyle());
+                textField.setStyle(nv ? buildEditTextStyle() : buildIdleTextStyle());
                 if (nv) beginEdit(); else endEditAndExit();
             });
 

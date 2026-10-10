@@ -12,6 +12,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
+import javafx.scene.Parent;
 import javafx.scene.Cursor;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -39,7 +40,10 @@ import javafx.util.Duration;
 
 import java.io.File;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,6 +73,8 @@ public class LrcEditorApp extends Application {
     private static final double PREVIEW_TEXT_INSET = 6;
     private static final String PREF_LAST_DIRECTORY = "lastDirectory";
     private static final String PREF_PREVIEW_PLAYING_COLOR = "previewPlayingColor";
+    private static final String PREF_APPEARANCE_THEME = "appearanceTheme";
+    private static final String DARK_THEME_STYLESHEET = "/styles/dark-theme.css";
 
     private static final double SPEED_STOP  = 0.0;
     private static final double SPEED_SLOW  = 45.0;
@@ -78,6 +84,9 @@ public class LrcEditorApp extends Application {
     // ============ 全局状态 ============
     private final LrcDocument doc = new LrcDocument();
     private final Preferences preferences = Preferences.userNodeForPackage(LrcEditorApp.class);
+    private String appearanceTheme =
+            "dark".equals(preferences.get(PREF_APPEARANCE_THEME, "dark"))
+                    ? "dark" : "light";
     private Color previewPlayingColor = loadPreviewPlayingColor();
     private File audioFile;
     private MediaPlayer mediaPlayer;
@@ -133,6 +142,11 @@ public class LrcEditorApp extends Application {
 
     private Menu          rotationSpeedMenu;
     private CheckMenuItem recordHighlightItem;
+    private RadioMenuItem lightAppearanceItem;
+    private RadioMenuItem darkAppearanceItem;
+    private Menu previewColorMenu;
+    private final Map<String, RadioMenuItem> previewColorMenuItems = new LinkedHashMap<>();
+    private final Map<String, String> previewColorLabels = new LinkedHashMap<>();
 
     // =====================================================================
     // 生命周期
@@ -147,12 +161,14 @@ public class LrcEditorApp extends Application {
 
         BorderPane root = new BorderPane();
         root.getStyleClass().add("app-root");
+        root.getStyleClass().add("theme-" + appearanceTheme);
         root.setTop(buildTop(stage));
         root.setLeft(buildLeft(stage));
         root.setCenter(buildCenter());
         root.setBottom(buildBottom());
 
         if (lyricView != null) lyricView.setBorderOpacity(borderOpacity);
+        if (lyricView != null) lyricView.setDarkMode("dark".equals(appearanceTheme));
 
         Rectangle2D vb = Screen.getPrimary().getVisualBounds();
         double sceneW = Math.min(1320, Math.max(900, vb.getWidth()  - 48));
@@ -163,6 +179,7 @@ public class LrcEditorApp extends Application {
         if (stylesheet != null) {
             scene.getStylesheets().add(stylesheet.toExternalForm());
         }
+        applyDarkStylesheet(scene, "dark".equals(appearanceTheme));
         installAccelerators(scene, stage);
 
         stage.setTitle("LRC 歌词编辑器");
@@ -847,6 +864,9 @@ public class LrcEditorApp extends Application {
         add(edit, "修改 offset",                          this::showOffsetDialog);
         add(edit, "时间分块 / 统合",                      () -> { doc.toggleTimeChunk(); refreshAll(); });
 
+        Menu video = new Menu("视频");
+        add(video, "一键生成视频…", () -> showVideoExport(stage));
+
         Menu view = new Menu("视图");
 
         CheckMenuItem bomItem = new CheckMenuItem("导出时写入 UTF-8 BOM");
@@ -912,6 +932,8 @@ public class LrcEditorApp extends Application {
         }
         view.getItems().add(rotationSpeedMenu);
 
+        Menu appearance = buildAppearanceMenu(stage);
+
         Menu help = new Menu("使用说明");
         add(help, "查看使用说明",  this::showUsageGuide);
         help.getItems().add(new SeparatorMenuItem());
@@ -925,9 +947,87 @@ public class LrcEditorApp extends Application {
                               + "内置 jflac 解码器\n\n"
                               + "by 忆昔风依旧"));
 
-        MenuBar menuBar = new MenuBar(file, edit, view, help, about);
+        MenuBar menuBar = new MenuBar(file, edit, video, view, appearance, help, about);
         menuBar.getStyleClass().add("app-menu-bar");
         return menuBar;
+    }
+
+    private void showVideoExport(Stage owner) {
+        boolean hasTimedLyrics = doc.getLines().stream()
+                .anyMatch(line -> line.timeMs != null && !line.text.isBlank());
+        if (!hasTimedLyrics) {
+            alert("请先导入带时间戳的歌词。");
+            return;
+        }
+
+        if (mediaPlayer != null
+                && mediaPlayer.getStatus() == MediaPlayer.Status.PLAYING) {
+            mediaPlayer.pause();
+            playPauseBtn.setText("▶ 播放");
+        }
+
+        double duration = 0;
+        if (mediaPlayer != null) {
+            Duration total = mediaPlayer.getTotalDuration();
+            if (total != null && total.greaterThan(Duration.ZERO)) {
+                duration = total.toSeconds();
+            }
+        }
+        new VideoExportWindow(
+                owner, doc, audioFile, duration, previewPlayingColor,
+                appearanceTheme, coverView == null ? null : coverView.getImage()).show();
+    }
+
+    private Menu buildAppearanceMenu(Stage stage) {
+        Menu menu = new Menu("外观");
+        ToggleGroup group = new ToggleGroup();
+        lightAppearanceItem = new RadioMenuItem("浅色模式");
+        darkAppearanceItem = new RadioMenuItem("深色模式");
+        lightAppearanceItem.setToggleGroup(group);
+        darkAppearanceItem.setToggleGroup(group);
+        lightAppearanceItem.setSelected(!"dark".equals(appearanceTheme));
+        darkAppearanceItem.setSelected("dark".equals(appearanceTheme));
+        lightAppearanceItem.setOnAction(e -> applyAppearanceTheme("light", stage));
+        darkAppearanceItem.setOnAction(e -> applyAppearanceTheme("dark", stage));
+        menu.getItems().addAll(lightAppearanceItem, darkAppearanceItem);
+        return menu;
+    }
+
+    private void applyAppearanceTheme(String theme, Stage stage) {
+        appearanceTheme = "dark".equals(theme) ? "dark" : "light";
+        if (lightAppearanceItem != null) {
+            lightAppearanceItem.setSelected("light".equals(appearanceTheme));
+        }
+        if (darkAppearanceItem != null) {
+            darkAppearanceItem.setSelected("dark".equals(appearanceTheme));
+        }
+        try {
+            preferences.put(PREF_APPEARANCE_THEME, appearanceTheme);
+            preferences.flush();
+        } catch (Exception ignored) {
+            // Theme still applies for the current session.
+        }
+        if (stage.getScene() != null && stage.getScene().getRoot() != null) {
+            Parent root = stage.getScene().getRoot();
+            root.getStyleClass().removeAll("theme-light", "theme-dark");
+            root.getStyleClass().add("theme-" + appearanceTheme);
+        }
+        if (stage.getScene() != null) {
+            applyDarkStylesheet(stage.getScene(), "dark".equals(appearanceTheme));
+        }
+        setPreviewPlayingColor("dark".equals(appearanceTheme) ? "#ffffff" : "#000000");
+        if (lyricView != null) {
+            lyricView.setDarkMode("dark".equals(appearanceTheme));
+        }
+    }
+
+    private void applyDarkStylesheet(Scene scene, boolean dark) {
+        if (scene == null) return;
+        var resource = LrcEditorApp.class.getResource(DARK_THEME_STYLESHEET);
+        if (resource == null) return;
+        String url = resource.toExternalForm();
+        scene.getStylesheets().remove(url);
+        if (dark) scene.getStylesheets().add(url);
     }
 
     private Menu buildOpacityMenu(String title, double defaultVal, java.util.function.DoubleConsumer onSelect) {
@@ -949,10 +1049,12 @@ public class LrcEditorApp extends Application {
     }
 
     private Menu buildPreviewPlayingColorMenu() {
-        Menu menu = new Menu("当前播放行颜色");
+        previewColorMenu = new Menu("当前播放行颜色");
         ToggleGroup group = new ToggleGroup();
-        String[] labels = { "黑色", "红色", "绿色", "蓝色" };
-        String[] colors = { "#000000", "#dc2626", "#16a34a", "#2563eb" };
+        previewColorMenuItems.clear();
+        previewColorLabels.clear();
+        String[] labels = { "黑色", "白色", "红色", "绿色", "蓝色" };
+        String[] colors = { "#000000", "#ffffff", "#dc2626", "#16a34a", "#2563eb" };
 
         for (int i = 0; i < colors.length; i++) {
             final String colorHex = colors[i];
@@ -960,9 +1062,12 @@ public class LrcEditorApp extends Application {
             item.setToggleGroup(group);
             item.setSelected(previewPlayingColor.equals(Color.web(colorHex)));
             item.setOnAction(e -> setPreviewPlayingColor(colorHex));
-            menu.getItems().add(item);
+            previewColorMenu.getItems().add(item);
+            previewColorMenuItems.put(colorHex, item);
+            previewColorLabels.put(colorHex, labels[i]);
         }
-        return menu;
+        updatePreviewColorMenuSelection(colorToHex(previewPlayingColor));
+        return previewColorMenu;
     }
 
     private Color loadPreviewPlayingColor() {
@@ -977,6 +1082,7 @@ public class LrcEditorApp extends Application {
     private void setPreviewPlayingColor(String colorHex) {
         finishLyricPreviewTransition();
         previewPlayingColor = Color.web(colorHex);
+        updatePreviewColorMenuSelection(colorHex.toLowerCase(Locale.ROOT));
         if (previewCurrentLabel != null) {
             previewCurrentLabel.setTextFill(previewPlayingColor);
         }
@@ -986,6 +1092,25 @@ public class LrcEditorApp extends Application {
         } catch (Exception ignored) {
             // The color still applies for the current session.
         }
+    }
+
+    private void updatePreviewColorMenuSelection(String colorHex) {
+        String normalized = colorHex == null
+                ? "#000000" : colorHex.toLowerCase(Locale.ROOT);
+        for (Map.Entry<String, RadioMenuItem> entry : previewColorMenuItems.entrySet()) {
+            entry.getValue().setSelected(entry.getKey().equals(normalized));
+        }
+        if (previewColorMenu != null) {
+            String label = previewColorLabels.getOrDefault(normalized, "自定义");
+            previewColorMenu.setText("当前播放行颜色（" + label + "）");
+        }
+    }
+
+    private String colorToHex(Color color) {
+        return String.format(Locale.ROOT, "#%02x%02x%02x",
+                Math.round(color.getRed() * 255),
+                Math.round(color.getGreen() * 255),
+                Math.round(color.getBlue() * 255));
     }
 
     private void add(Menu m, String text, Runnable r) {
@@ -1031,218 +1156,260 @@ public class LrcEditorApp extends Application {
     }
 
     private String buildUsageText() {
-        return
-                "================================================================\n" +
-                        "  LRC 歌词编辑器 · 使用说明\n" +
-                        "  by 忆昔风依旧\n" +
-                        "================================================================\n" +
-                        "\n" +
-                        "一、基本流程\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  1) 导入音频（Ctrl+Shift+O）→ 等波形生成\n" +
-                        "  2) 导入歌词（Ctrl+O）或直接新建手动输入\n" +
-                        "  3) 播放音频，用 Ctrl+T（或空格）打时间戳\n" +
-                        "  4) 用 Ctrl+S 保存 / 导出\n" +
-                        "\n" +
-                        "二、快捷键（列表焦点时生效）\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  【文件】\n" +
-                        "    Ctrl + O            导入歌词 (.lrc / .txt)\n" +
-                        "    Ctrl + Shift + O    导入音频 (.mp3 / .wav / .flac)\n" +
-                        "    Ctrl + S            保存\n" +
-                        "    Ctrl + Shift + S    另存为\n" +
-                        "\n" +
-                        "  【编辑】\n" +
-                        "    Ctrl + Z            撤销\n" +
-                        "    Ctrl + Y            重做\n" +
-                        "    Ctrl + A            全选所有非空行\n" +
-                        "    Ctrl + T            生成时间标记（用当前播放时间覆盖选中行）\n" +
-                        "    Ctrl + Shift + T    批量偏移选中时间戳（弹窗输入毫秒）\n" +
-                        "    Ctrl + N            在选中行下方插入新行\n" +
-                        "    Ctrl + D            删除所有选中行\n" +
-                        "    Space               批量打戳（等价于 Ctrl+T）\n" +
-                        "    Delete              删除选中行\n" +
-                        "    Insert              插入新行\n" +
-                        "    Enter               从选中行开始播放\n" +
-                        "\n" +
-                        "三、鼠标操作\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  · 单击行             只选中（第一次）\n" +
-                        "  · 再次单击同一行     进入编辑（保护机制，避免误触）\n" +
-                        "  · Shift + 单击       连续范围选择\n" +
-                        "  · Ctrl  + 单击       独立加减选择\n" +
-                        "  · 单击 ▶ 图标        跳转音频到该组时间戳\n" +
-                        "  · 单击波形图         跳转到该处播放\n" +
-                        "  · 拖动窗口边缘       调整窗口大小\n" +
-                        "\n" +
-                        "四、播放与高亮\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  · 黄色高亮   = 当前播放时间对应的歌词组\n" +
-                        "  · 蓝色高亮   = 用户手动选中的行\n" +
-                        "  · 蓝 + 黄   = 用户选中行恰好在当前播放组中（深蓝底 + 黄边条）\n" +
-                        "  · 左侧 ▶ 绿色三角  出现于同一时间戳组的首行\n" +
-                        "    点击它 = 快速跳到该组时间戳\n" +
-                        "\n" +
-                        "五、同步跳转开关（左侧按钮：同步跳转: 开/关）\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  开（默认）:\n" +
-                        "      播放时，高亮跟随播放位置，列表自动滚动到当前行\n" +
-                        "  关:\n" +
-                        "      高亮冻结在用户选中的那一组，列表不滚动\n" +
-                        "      → 编辑时间戳时不会被播放位置顶走，方便精细修改\n" +
-                        "      → 点选任意行，高亮会立刻切到该行对应的组\n" +
-                        "\n" +
-                        "六、自动选择同组（左侧按钮：自动选择同组: 开/关）\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  关（默认）:\n" +
-                        "      单击某行 → 只选中该行\n" +
-                        "  开:\n" +
-                        "      单击某行 → 立即选中该行时间戳对应的所有行（整组）\n" +
-                        "      再单击同一行 → 进入编辑（仍保留两次点击保护）\n" +
-                        "      按住 Shift / Ctrl 单击 → 保留原生多选，不触发自动扩展\n" +
-                        "  · 适合：一键 Ctrl+T 给整组打戳，或 Ctrl+Shift+T 整组偏移\n" +
-                        "\n" +
-                        "七、时间分块 / 统合（左侧按钮）\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  点一次（灰 → 绿）:\n" +
-                        "      相同时间戳的行归到一组，不同组之间插入空行\n" +
-                        "      便于观察多语言 / 多版本歌词的分组情况\n" +
-                        "  再点一次（绿 → 灰）:\n" +
-                        "      删除所有空行，恢复紧凑格式\n" +
-                        "  · 空行在界面上完全隐形，无法选中、无法编辑，只是视觉间距\n" +
-                        "  · 导出时始终自动删除空行，无需先手动统合\n" +
-                        "\n" +
-                        "八、offset（左侧按钮：修改 offset）\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  · 输入值 = 目标偏移量（毫秒）\n" +
-                        "  · 内部采用「增量法」:\n" +
-                        "      输入 500 → 所有时间戳 +500ms\n" +
-                        "      输入 0   → 所有时间戳 -500ms，恢复到原始值\n" +
-                        "      输入 200 → 再 +200ms，总偏移 = +200ms\n" +
-                        "  · 因此改回 0 即可一键恢复用户最初导入的原始时间戳\n" +
-                        "\n" +
-                        "九、视图设置\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  · 导出时写入 UTF-8 BOM\n" +
-                        "      开启后导出文件带 BOM 头，兼容部分老播放器中文显示\n" +
-                        "  · 输入框边框可见度 / 选中高亮可见度 / 播放高亮可见度\n" +
-                        "      调整三种界面元素的视觉强度，0% = 隐藏\n" +
-                        "  · 封面形状：圆形（黑胶）/ 方形\n" +
-                        "  · 唱片高光：圆形时可开关\n" +
-                        "  · 旋转速度：停止 / 慢速 / 中速 / 快速（方形时禁用）\n" +
-                        "\n" +
-                        "================================================================\n" +
-                        "  详细注意事项请见：使用说明 → 重要注意事项\n" +
-                        "================================================================\n";
+        return """
+                ================================================================
+                  LRC 歌词编辑器 · 使用说明
+                  by 忆昔风依旧
+                ================================================================
+
+                一、基本流程
+                ----------------------------------------------------------------
+                  1) 导入音频：Ctrl+Shift+O，等待媒体和波形准备完成。
+                  2) 导入歌词：Ctrl+O；也可以新建后手动输入。
+                  3) 在列表中选择行，播放到目标位置后按 Space 或 Ctrl+T 打时间戳。
+                  4) 使用 Ctrl+S 保存歌词。
+                  5) 需要视频时，打开“视频 → 一键生成视频”。
+
+                二、歌词编辑
+                ----------------------------------------------------------------
+                  · 第一次单击：只选中歌词行。
+                  · 再次单击同一行：进入编辑。
+                  · 编辑时按 Enter：提交并退出编辑。
+                  · 列表焦点下按 Enter：从当前选中行开始播放。
+                  · “自动选择同组”：单击一行即可选中相同时间戳的全部歌词。
+                  · “同步跳转”：控制播放高亮是否跟随歌曲自动滚动。
+                  · “时间分块 / 统合”：按时间戳分组，便于查看多语言歌词。
+                  · “修改 offset”：所有时间戳按目标偏移量整体移动。
+
+                三、播放与定位
+                ----------------------------------------------------------------
+                  · 左侧播放按钮：播放或暂停。
+                  · Space：给选中行覆盖当前播放时间。
+                  · Delete：删除选中行。
+                  · Insert：在选中行后插入空行。
+                  · 单击波形：跳转到对应时间。
+                  · 单击绿色 ▶：跳到该时间戳组。
+                  · 播放结束后，波形会平滑回到开头。
+
+                四、顶部滚动歌词预览
+                ----------------------------------------------------------------
+                  · 显示上一句、当前句、下一句。
+                  · 当前播放句使用更大字号和选定颜色。
+                  · 可在“视图 → 当前播放行颜色”选择黑、白、红、绿或蓝。
+                  · 切换深色/浅色主题时，当前句会自动切换为白色/黑色。
+
+                五、外观
+                ----------------------------------------------------------------
+                  · 默认使用深色模式。
+                  · “外观”菜单提供“浅色模式”和“深色模式”。
+                  · 主题会应用到主界面、歌词列表、波形、菜单和视频设置窗口。
+                  · 用户手动选择的外观会保留到下次启动。
+
+                六、一键生成视频
+                ----------------------------------------------------------------
+                  入口：顶部“视频 → 一键生成视频”。
+                  打开时会自动暂停主界面播放，避免声音和导出任务冲突。
+
+                  歌词效果：
+                    · 直接显示模式：到时间点直接显示，不闪烁、不淡入淡出。
+                    · 单句渐显渐隐模式：当前句平滑出现，再平滑消失。
+                    · 上下滚动模式：保持三行歌词，下一句到来前快速向上滚动。
+
+                  滚动设置：
+                    · 滚动速度可留空使用自动值，也可填写倍率。
+                    · 字号、行距可留空自动适配，也可手动输入。
+                    · 非当前行缩小量可留空自动，范围为 0 到“当前字号-1”。
+
+                  背景类型：
+                    · 内置静态背景。
+                    · 内置动态背景。
+                    · 专辑封面，可选择“填充 / 合适 / 默认”。
+                    · 自定义图片：jpg、jpeg、png。
+                    · 自定义视频：mp4、mkv。
+
+                  质感：
+                    · 无效果。
+                    · 暗色+玻璃磨砂：可同时调整模糊、静态锐度颗粒和暗色程度。
+                    · 提供独立的“恢复默认”按钮。
+
+                  预览：
+                    · 自动切换横屏或竖屏比例。
+                    · 右下角小喇叭只控制预览声音，不影响导出音轨。
+                    · 左侧按钮控制预览播放/暂停。
+                    · 时间轴可拖动定位，并支持循环预览。
+                    · 开启“截取片段”后，用绿/红箭头设置开始和结束位置。
+
+                七、输出位置规则
+                ----------------------------------------------------------------
+                  视频默认保存优先级：
+                    用户自定义路径 > 歌曲所在目录 > 歌词所在目录
+
+                八、保存与导出
+                ----------------------------------------------------------------
+                  · Ctrl+S：保存歌词。
+                  · Ctrl+Shift+S：另存为。
+                  · “导出歌词”会删除纯视觉空行。
+                  · “视图 → 导出时写入 UTF-8 BOM”用于兼容老播放器。
+
+                九、恢复默认
+                ----------------------------------------------------------------
+                  · 视频窗口底部提供“恢复默认设置”。
+                  · 质感区域提供独立的“恢复默认”。
+                  · 恢复默认不会删除歌词、音轨或已选择的文件。
+
+                ================================================================
+                  详细边界情况请见：使用说明 → 重要注意事项
+                ================================================================
+                """;
     }
 
     private String buildShortcutsText() {
-        return
-                "================================================================\n" +
-                        "  快捷键速查\n" +
-                        "================================================================\n" +
-                        "\n" +
-                        "【文件】\n" +
-                        "  Ctrl + O            导入歌词\n" +
-                        "  Ctrl + Shift + O    导入音频\n" +
-                        "  Ctrl + S            保存\n" +
-                        "  Ctrl + Shift + S    另存为\n" +
-                        "\n" +
-                        "【编辑】\n" +
-                        "  Ctrl + Z            撤销\n" +
-                        "  Ctrl + Y            重做\n" +
-                        "  Ctrl + A            全选所有非空行\n" +
-                        "  Ctrl + T            生成时间标记（覆盖选中行）\n" +
-                        "  Ctrl + Shift + T    批量偏移选中时间戳\n" +
-                        "  Ctrl + N            插入新行\n" +
-                        "  Ctrl + D            删除选中行\n" +
-                        "\n" +
-                        "【列表内】\n" +
-                        "  Space               批量打戳（等价于 Ctrl+T）\n" +
-                        "  Delete              删除选中行\n" +
-                        "  Insert              插入新行\n" +
-                        "  Enter               从选中行开始播放\n" +
-                        "\n" +
-                        "【多选】\n" +
-                        "  Shift + 单击        连续范围选择\n" +
-                        "  Ctrl  + 单击        独立加减选择\n" +
-                        "  Ctrl + A            全选\n" +
-                        "\n" +
-                        "【播放】\n" +
-                        "  单击左侧按钮         播放 / 暂停\n" +
-                        "  单击波形图           跳转到该处播放\n" +
-                        "  单击 ▶ 图标          跳转到该组时间戳\n";
+        return """
+                ================================================================
+                  快捷键速查
+                ================================================================
+
+                【文件】
+                  Ctrl + O            导入歌词（.lrc / .txt）
+                  Ctrl + Shift + O    导入音频（.mp3 / .wav / .flac）
+                  Ctrl + S            保存
+                  Ctrl + Shift + S    另存为
+
+                【编辑】
+                  Ctrl + Z            撤销
+                  Ctrl + Y            重做
+                  Ctrl + A            全选所有非空行
+                  Ctrl + T            用当前播放时间覆盖选中行
+                  Ctrl + Shift + T    批量偏移选中时间戳
+                  Ctrl + N            在选中行下方插入新行
+                  Ctrl + D            删除选中行
+
+                【列表焦点】
+                  Space               批量打时间戳（等价 Ctrl+T）
+                  Delete              删除选中行
+                  Insert              插入新行
+                  Enter               从选中行开始播放
+
+                【编辑状态】
+                  Enter               提交并退出当前行编辑
+
+                【多选】
+                  Shift + 单击        连续范围选择
+                  Ctrl  + 单击        独立加减选择
+                  Ctrl + A            全选
+
+                【播放】
+                  单击左侧播放按钮     播放 / 暂停
+                  单击波形图           跳转到对应时间播放
+                  单击绿色 ▶           跳转到该组时间戳
+
+                【视频设置窗口】
+                  拖动时间轴           定位预览，可反复播放
+                  单击小喇叭           仅静音/开启预览声音
+                  单击播放按钮         暂停或继续预览
+                  “截取片段”           默认关闭，开启后可用绿/红箭头截取
+                """;
     }
 
     private String buildNotesText() {
-        return
-                "================================================================\n" +
-                        "  重要注意事项\n" +
-                        "================================================================\n" +
-                        "\n" +
-                        "1. 时间戳格式\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  标准格式： [mm:ss.xxx]\n" +
-                        "  兼容格式： [mm:ss.xx]    [mm:ss]    [mm:ss:xx]\n" +
-                        "  编辑时间戳时可省略方括号，保存时会自动补上。\n" +
-                        "\n" +
-                        "2. 两次点击才进入编辑\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  为防止误触，第一次单击仅「选中」，第二次点击同一行才进入编辑。\n" +
-                        "  按 Enter 提交并退出编辑，光标停在原行不会跳走。\n" +
-                        "  · 开启「自动选择同组」后：第一击选中整组，第二击才进入编辑。\n" +
-                        "\n" +
-                        "3. 批量操作使用「焦点行」\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  多选状态下，Ctrl+T / Ctrl+D / Ctrl+N 等操作以「焦点行」\n" +
-                        "  （最后点击或键盘移动到的行）为准进行计算和定位。\n" +
-                        "\n" +
-                        "4. 播放高亮 vs 用户选中\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  黄色 = 播放时间驱动（系统）\n" +
-                        "  蓝色 = 用户手动选择\n" +
-                        "  两者叠加时采用「深蓝底 + 黄边条」组合，不会互相遮挡。\n" +
-                        "\n" +
-                        "5. 关闭同步跳转后\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  当前高亮会被「锁定」在切换的瞬间，不随播放前进。\n" +
-                        "  想重新跟随播放时，再点一次左侧按钮即可。\n" +
-                        "\n" +
-                        "6. 时间分块产生的空行\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  是纯视觉元素，无法选中、无法编辑；导出时自动丢弃。\n" +
-                        "  不需要为了导出而先手动统合。\n" +
-                        "\n" +
-                        "7. offset 采用增量法\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  每次输入的是「目标偏移量」，不是「改动量」。\n" +
-                        "  改回 0 即恢复原始时间戳。\n" +
-                        "\n" +
-                        "8. 保存编码\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  默认 UTF-8。开启「导出时写入 UTF-8 BOM」可兼容老播放器。\n" +
-                        "  导入时自动识别 UTF-8 / GBK / BOM。\n" +
-                        "\n" +
-                        "9. FLAC 音频\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  首次导入 FLAC 时会在后台解码为临时 WAV，\n" +
-                        "  大文件可能需要几秒，请耐心等待进度条完成。\n" +
-                        "\n" +
-                        "10. 撤销栈\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  最多保留 300 步。批量操作算作一步，可一次 Ctrl+Z 撤销。\n" +
-                        "\n" +
-                        "11. 封面来源\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  优先读 MP3 / FLAC 内嵌封面；\n" +
-                        "  其次搜索音频同目录的同名图片；\n" +
-                        "  再找 cover / folder / album / front / artwork / albumart。\n" +
-                        "  找不到时显示空白黑胶盘。\n" +
-                        "\n" +
-                        "12. 圆形封面旋转\n" +
-                        "----------------------------------------------------------------\n" +
-                        "  仅在「圆形 + 非零速度 + 播放中」三个条件同时满足时旋转。\n" +
-                        "  暂停、停止、切换歌曲、切换为方形 → 立刻停住 / 归零。\n";
+        return """
+                ================================================================
+                  重要注意事项
+                ================================================================
+
+                1. 时间戳格式
+                ----------------------------------------------------------------
+                  标准格式：[mm:ss.xxx]
+                  兼容格式：[mm:ss.xx]、[mm:ss]、[mm:ss:xx]
+                  编辑时可省略方括号，保存时会自动补齐。
+
+                2. 点击与编辑
+                ----------------------------------------------------------------
+                  第一次单击只选中，再次单击同一行才进入编辑。
+                  编辑状态按 Enter：提交并退出编辑。
+                  列表焦点按 Enter：从选中行开始播放。
+                  开启“自动选择同组”后，第一击选中整组，第二击进入编辑。
+
+                3. 批量操作
+                ----------------------------------------------------------------
+                  多选时，Ctrl+T、Ctrl+D、Ctrl+N 等操作以焦点行为基准。
+                  批量操作在撤销栈中算作一步。
+
+                4. 歌词高亮与颜色
+                ----------------------------------------------------------------
+                  蓝色：用户手动选中。
+                  黄色：当前播放时间对应的歌词组。
+                  蓝+黄：选中行正处于当前播放组。
+                  顶部预览当前行颜色可在“视图 → 当前播放行颜色”修改。
+
+                5. 同步跳转
+                ----------------------------------------------------------------
+                  开启：播放高亮跟随歌曲，列表自动滚动。
+                  关闭：高亮锁定在用户选中行，便于精确编辑。
+
+                6. 时间分块
+                ----------------------------------------------------------------
+                  分块产生的空行只用于视觉间隔，无法选中或编辑。
+                  导出歌词和视频时会自动忽略这些空行。
+
+                7. Offset
+                ----------------------------------------------------------------
+                  输入的是目标偏移量，不是每次改动量。
+                  输入 0 会恢复为最初导入时的时间戳。
+
+                8. 保存编码
+                ----------------------------------------------------------------
+                  默认 UTF-8，导入时自动识别 UTF-8、GBK 和 BOM。
+                  “导出时写入 UTF-8 BOM”可提高老播放器兼容性。
+
+                9. FLAC 音频
+                ----------------------------------------------------------------
+                  首次使用时会在后台解码为临时 WAV。
+                  大文件处理需要一定时间，期间可正常使用界面。
+
+                10. 撤销栈
+                ----------------------------------------------------------------
+                  最多保留 300 步。
+                  批量操作可一次 Ctrl+Z 整体撤销。
+
+                11. 封面来源
+                ----------------------------------------------------------------
+                  优先读取 MP3 / FLAC 内嵌封面。
+                  其次搜索音频目录中的同名图片。
+                  再搜索 cover、folder、album、front、artwork、albumart。
+                  没有封面时显示默认黑胶盘。
+
+                12. 圆形封面旋转
+                ----------------------------------------------------------------
+                  只有“圆形 + 非零旋转速度 + 正在播放”时旋转。
+                  暂停、停止、切换歌曲或切换为方形时立即停止并归零。
+
+                13. 视频导出
+                ----------------------------------------------------------------
+                  导出前请确保歌词已有时间戳。
+                  打开视频窗口时，主界面播放会自动暂停。
+                  导出期间取消或失败不会保留不完整的 MP4。
+                  正式文件只会在导出成功后写入。
+
+                14. 视频预览
+                ----------------------------------------------------------------
+                  预览会随分辨率切换横屏或竖屏。
+                  小喇叭只控制预览声音，不影响导出音轨。
+                  时间轴可拖动定位，并可反复预览。
+                  “截取片段”默认关闭；开启后绿色箭头为开始，红色箭头为结束。
+                  拖动截取箭头时会临时静音，避免杂音。
+
+                15. 输出路径
+                ----------------------------------------------------------------
+                  视频默认保存优先级：
+                    用户自定义 > 歌曲所在目录 > 歌词所在目录
+
+                16. 性能与兼容性
+                ----------------------------------------------------------------
+                  视频导出速度取决于分辨率、帧率、背景视频和电脑性能。
+                  导出使用内置 FFmpeg，生成标准 H.264 MP4 + AAC 音轨。
+                  建议不要在导出过程中同时执行大型磁盘任务。
+                """;
     }
 
     // =====================================================================
@@ -1508,12 +1675,13 @@ public class LrcEditorApp extends Application {
     private void drawWaveform(double viewCenter, double playhead) {
         GraphicsContext gc = waveCanvas.getGraphicsContext2D();
         double W = waveCanvas.getWidth(), H = waveCanvas.getHeight();
-        gc.setFill(Color.web("#f8fafc"));
+        boolean dark = "dark".equals(appearanceTheme);
+        gc.setFill(Color.web(dark ? "#0f172a" : "#f8fafc"));
         gc.fillRect(0, 0, W, H);
 
         if (waveform == null || waveform.bucketCount() == 0) {
             gc.setTextAlign(TextAlignment.CENTER);
-            gc.setFill(Color.web("#94a3b8"));
+            gc.setFill(Color.web(dark ? "#64748b" : "#94a3b8"));
             gc.fillText("未载入音频", W / 2, H / 2 + 5);
             return;
         }
@@ -1522,11 +1690,11 @@ public class LrcEditorApp extends Application {
         double startSec = viewCenter - WAVE_WINDOW_SEC / 2;
         double midY = H / 2, amp = H / 2 * 0.9;
 
-        gc.setStroke(Color.web("#e2e8f0"));
+        gc.setStroke(Color.web(dark ? "#334155" : "#e2e8f0"));
         gc.setLineWidth(1);
         gc.strokeLine(0, midY, W, midY);
 
-        gc.setStroke(Color.web("#2563eb"));
+        gc.setStroke(Color.web(dark ? "#60a5fa" : "#2563eb"));
         gc.setLineWidth(1);
         for (int px = 0; px < (int) W; px++) {
             double timelineSec = startSec + (px / W) * WAVE_WINDOW_SEC;
@@ -1546,7 +1714,7 @@ public class LrcEditorApp extends Application {
         gc.setFill(Color.rgb(239, 68, 68, 0.09));
         gc.fillRect(playheadX - 8, 0, 16, H);
 
-        gc.setStroke(Color.web("#ef4444"));
+        gc.setStroke(Color.web(dark ? "#f87171" : "#ef4444"));
         gc.setLineWidth(1.8);
         gc.strokeLine(playheadX, 0, playheadX, H);
     }
