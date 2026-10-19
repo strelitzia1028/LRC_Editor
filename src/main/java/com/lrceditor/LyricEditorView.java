@@ -46,6 +46,9 @@ public class LyricEditorView extends ListView<LyricLine> {
     /** 是否自动选择相同时间戳的所有行（单击某行即选中整组）。默认关 */
     private boolean autoSelectSameTimestamp = false;
 
+    /** 单击后向下额外扩选的行数，0 表示关闭，最大 10。 */
+    private int autoExpandRows = 0;
+
     /** 深色外观。 */
     private boolean darkMode = false;
 
@@ -230,6 +233,14 @@ public class LyricEditorView extends ListView<LyricLine> {
 
     public void setAutoSelectSameTimestamp(boolean enabled) {
         this.autoSelectSameTimestamp = enabled;
+    }
+
+    public int getAutoExpandRows() {
+        return autoExpandRows;
+    }
+
+    public void setAutoExpandRows(int rows) {
+        autoExpandRows = Math.max(0, Math.min(10, rows));
     }
 
     public void setDarkMode(boolean darkMode) {
@@ -484,6 +495,39 @@ public class LyricEditorView extends ListView<LyricLine> {
         return currSet.equals(groupSet);
     }
 
+    /** 从 idx 开始向下收集 idx 加 N 个可见歌词行，遇到文件末尾自动停止。 */
+    private List<Integer> collectExpandedRange(int idx) {
+        List<Integer> range = new ArrayList<>();
+        if (idx < 0 || idx >= doc.getLines().size() || autoExpandRows <= 0) return range;
+
+        if (!isBlankSeparator(idx)) range.add(idx);
+        for (int i = idx + 1; i < doc.getLines().size()
+                && range.size() <= autoExpandRows; i++) {
+            if (!isBlankSeparator(i)) range.add(i);
+        }
+        return range;
+    }
+
+    private void selectExpandedRange(int idx) {
+        List<Integer> range = collectExpandedRange(idx);
+        if (range.isEmpty()) return;
+
+        SelectionModel<LyricLine> sm = getSelectionModel();
+        sm.clearSelection();
+        sm.select(idx);
+        for (int i : range) {
+            if (i != idx) sm.select(i);
+        }
+    }
+
+    private boolean isCurrentSelectionEqualToExpandedRange(int idx) {
+        List<Integer> range = collectExpandedRange(idx);
+        if (range.isEmpty()) return false;
+        Set<Integer> rangeSet = new HashSet<>(range);
+        Set<Integer> currentSet = new HashSet<>(getSelectionModel().getSelectedIndices());
+        return currentSet.equals(rangeSet);
+    }
+
     // ============================================================
     // 单元格
     // ============================================================
@@ -562,6 +606,15 @@ public class LyricEditorView extends ListView<LyricLine> {
                     return;
                 }
 
+                if (autoExpandRows > 0) {
+                    boolean rangeAlreadySelected = isCurrentSelectionEqualToExpandedRange(idx);
+                    wasSelectedAtPress = rangeAlreadySelected;
+                    if (rangeAlreadySelected) {
+                        e.consume();
+                    }
+                    return;
+                }
+
                 if (autoSelectSameTimestamp) {
                     // 开启自动选择：判断"当前选中集是否恰为该行时间戳组"
                     boolean groupAlreadySelected = isCurrentSelectionEqualToGroup(idx);
@@ -593,6 +646,15 @@ public class LyricEditorView extends ListView<LyricLine> {
                 if (isBlankSeparator(idx)) return;
 
                 boolean noModifier = !e.isShiftDown() && !e.isControlDown() && !e.isMetaDown();
+
+                if (autoExpandRows > 0 && noModifier) {
+                    if (!wasSelectedAtPress) {
+                        selectExpandedRange(idx);
+                        return;
+                    }
+                    enterEditMode(e);
+                    return;
+                }
 
                 if (autoSelectSameTimestamp && noModifier) {
                     if (!wasSelectedAtPress) {

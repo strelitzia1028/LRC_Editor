@@ -156,6 +156,12 @@
     -fx-font-weight: 700;
 }
 
+.sidebar-button.is-danger {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #b91c1c;
+    -fx-font-weight: 700;
+}
+
 .sidebar-separator {
     -fx-padding: 4 0 1 0;
 }
@@ -445,6 +451,11 @@
 .theme-dark .sidebar-button.is-warning {
     -fx-background-color: #431407;
     -fx-text-fill: #fdba74;
+}
+
+.theme-dark .sidebar-button.is-danger {
+    -fx-background-color: #7f1d1d;
+    -fx-text-fill: #fecaca;
 }
 
 .theme-dark .workspace {

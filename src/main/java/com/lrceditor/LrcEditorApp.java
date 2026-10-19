@@ -138,6 +138,7 @@ public class LrcEditorApp extends Application {
     private Button chunkToggleBtn;
     private Button syncJumpBtn;
     private Button autoSelectBtn;
+    private Button autoExpandBtn;
     private ProgressBar waveProgress;
 
     private Menu          rotationSpeedMenu;
@@ -942,7 +943,7 @@ public class LrcEditorApp extends Application {
 
         Menu about = new Menu("关于");
         add(about, "关于 LRC 编辑器", () ->
-                alert("LRC 歌词编辑器 v4.9\n"
+                alert("LRC 歌词编辑器 v5.3\n"
                               + "JDK 17 + JavaFX 21\n"
                               + "内置 jflac 解码器\n\n"
                               + "by 忆昔风依旧"));
@@ -1177,6 +1178,10 @@ public class LrcEditorApp extends Application {
                   · 编辑时按 Enter：提交并退出编辑。
                   · 列表焦点下按 Enter：从当前选中行开始播放。
                   · “自动选择同组”：单击一行即可选中相同时间戳的全部歌词。
+                  · “自动扩选 N 行”：单击后向下扩选 N 个可见歌词行。
+                    可输入 0 到 10；0 表示关闭，到达文件末尾时自动停止。
+                    “自动选择同组”和“自动扩选”只能开启其中一个。
+                    发生冲突时会显示白底黑字确认提示，确认后才切换。
                   · “同步跳转”：控制播放高亮是否跟随歌曲自动滚动。
                   · “时间分块 / 统合”：按时间戳分组，便于查看多语言歌词。
                   · “修改 offset”：所有时间戳按目标偏移量整体移动。
@@ -1204,6 +1209,11 @@ public class LrcEditorApp extends Application {
                   · “外观”菜单提供“浅色模式”和“深色模式”。
                   · 主题会应用到主界面、歌词列表、波形、菜单和视频设置窗口。
                   · 用户手动选择的外观会保留到下次启动。
+                  · “视图 → 导出时写入 UTF-8 BOM”用于兼容部分老播放器。
+                  · 可调整输入框边框、手选高亮和播放高亮的可见度。
+                  · 可切换圆形黑胶或方形封面。
+                  · 圆形封面可开关唱片高光，并选择停止、慢速、中速、快速旋转。
+                  · “当前播放行颜色”可选择黑、白、红、绿、蓝。
 
                 六、一键生成视频
                 ----------------------------------------------------------------
@@ -1211,26 +1221,36 @@ public class LrcEditorApp extends Application {
                   打开时会自动暂停主界面播放，避免声音和导出任务冲突。
 
                   歌词效果：
-                    · 直接显示模式：到时间点直接显示，不闪烁、不淡入淡出。
-                    · 单句渐显渐隐模式：当前句平滑出现，再平滑消失。
-                    · 上下滚动模式：保持三行歌词，下一句到来前快速向上滚动。
+                    · 直接显现模式
+                      - 直接显示：到时间点直接出现，不闪烁、不淡入淡出。
+                      - 单句渐显渐隐：当前句平滑出现，再平滑消失。
+                    · 正常滚动模式
+                      - 上下滚动：保持三行歌词，下一句到来前快速向上滚动。
 
                   滚动设置：
                     · 滚动速度可留空使用自动值，也可填写倍率。
+                      1.0 为标准，2.0 为两倍速，0.5 为半速。
                     · 字号、行距可留空自动适配，也可手动输入。
                     · 非当前行缩小量可留空自动，范围为 0 到“当前字号-1”。
+                    · 视频默认歌词颜色为白色，可自行修改。
+                    · 分辨率支持 1920×1080、1280×720、1080×1920、720×1280。
+                    · 帧率支持 30 FPS 和 60 FPS。
 
                   背景类型：
-                    · 内置静态背景。
-                    · 内置动态背景。
-                    · 专辑封面，可选择“填充 / 合适 / 默认”。
+                    · 内置静态背景：深海蓝、暗夜、暖阳、纯黑。
+                    · 内置动态背景：缓慢缩放、蓝色呼吸、粒子漂浮。
+                    · 专辑封面：使用与主界面相同的封面图片。
+                      - 填充：保持原比例，裁剪到铺满画面。
+                      - 合适：保持原比例，完整显示，允许留边。
+                      - 默认：保持原比例，居中放大到刚好填满画面。
                     · 自定义图片：jpg、jpeg、png。
                     · 自定义视频：mp4、mkv。
 
                   质感：
                     · 无效果。
                     · 暗色+玻璃磨砂：可同时调整模糊、静态锐度颗粒和暗色程度。
-                    · 提供独立的“恢复默认”按钮。
+                    · 静态锐度颗粒不是噪点，不会逐帧闪烁。
+                    · 独立“恢复默认”会恢复模糊 35%、锐度颗粒 12%、暗色 35%。
 
                   预览：
                     · 自动切换横屏或竖屏比例。
@@ -1238,11 +1258,17 @@ public class LrcEditorApp extends Application {
                     · 左侧按钮控制预览播放/暂停。
                     · 时间轴可拖动定位，并支持循环预览。
                     · 开启“截取片段”后，用绿/红箭头设置开始和结束位置。
+                    · 截取默认关闭，即默认导出完整歌曲匹配区间。
+                    · 拖动箭头时会临时静音并暂停，便于精确定位。
+                    · 播放到红色终点会停止；再次播放会从绿色起点开始。
+                    · 拖动时间轴或截取箭头时，预览显示会实时更新。
 
                 七、输出位置规则
                 ----------------------------------------------------------------
                   视频默认保存优先级：
                     用户自定义路径 > 歌曲所在目录 > 歌词所在目录
+                  未导入歌曲时保存到歌词目录；未导入歌词时使用用户目录。
+                  软件会记住上次打开或保存文件的目录，下次打开文件对话框时复用。
 
                 八、保存与导出
                 ----------------------------------------------------------------
@@ -1250,12 +1276,17 @@ public class LrcEditorApp extends Application {
                   · Ctrl+Shift+S：另存为。
                   · “导出歌词”会删除纯视觉空行。
                   · “视图 → 导出时写入 UTF-8 BOM”用于兼容老播放器。
+                  · 视频导出为 MP4，视频 H.264、音频 AAC。
+                  · 视频取消或失败时会自动删除临时文件。
+                  · 正式视频只会在导出成功后写入目标位置。
 
                 九、恢复默认
                 ----------------------------------------------------------------
                   · 视频窗口底部提供“恢复默认设置”。
                   · 质感区域提供独立的“恢复默认”。
                   · 恢复默认不会删除歌词、音轨或已选择的文件。
+                  · 默认会恢复背景、质感、分辨率、帧率、字体、颜色等设置。
+                  · 截取片段会关闭，恢复为完整歌曲导出。
 
                 ================================================================
                   详细边界情况请见：使用说明 → 重要注意事项
@@ -1341,6 +1372,7 @@ public class LrcEditorApp extends Application {
                   黄色：当前播放时间对应的歌词组。
                   蓝+黄：选中行正处于当前播放组。
                   顶部预览当前行颜色可在“视图 → 当前播放行颜色”修改。
+                  “自动选择同组”和“自动扩选”互斥，切换时会询问确认。
 
                 5. 同步跳转
                 ----------------------------------------------------------------
@@ -1427,6 +1459,7 @@ public class LrcEditorApp extends Application {
         Button bJump        = sidebarButton("跳到光标时间戳");
         syncJumpBtn         = sidebarButton("同步跳转：开");
         autoSelectBtn       = sidebarButton("自动选择同组：关");
+        autoExpandBtn       = sidebarButton("自动扩选 0 行");
         Button bInsertLine  = sidebarButton("插入新行");
         Button bDeleteLine  = sidebarButton("删除选中行");
         Button bShift       = sidebarButton("批量偏移时间戳");
@@ -1453,9 +1486,15 @@ public class LrcEditorApp extends Application {
         autoSelectBtn.setOnAction(e -> {
             if (lyricView == null) return;
             boolean newState = !lyricView.isAutoSelectSameTimestamp();
+            if (newState && lyricView.getAutoExpandRows() > 0) {
+                if (!confirmExclusiveSelectionMode(lyricView.getAutoExpandRows())) return;
+                lyricView.setAutoExpandRows(0);
+                updateAutoExpandButtonStyle();
+            }
             lyricView.setAutoSelectSameTimestamp(newState);
             updateAutoSelectButtonStyle();
         });
+        autoExpandBtn.setOnAction(e -> showAutoExpandDialog());
         bInsertLine.setOnAction(e -> insertNewLine());
         bDeleteLine.setOnAction(e -> deleteSelectedLines());
         bShift.setOnAction(e -> shiftSelectedTimestamps());
@@ -1468,7 +1507,7 @@ public class LrcEditorApp extends Application {
                 sidebarSection("文件"),
                 bImportLrc, bImportAudio,
                 sidebarSeparator(), sidebarSection("打点与定位"),
-                bMark, bJump, syncJumpBtn, autoSelectBtn,
+                bMark, bJump, syncJumpBtn, autoSelectBtn, autoExpandBtn,
                 sidebarSeparator(), sidebarSection("编辑"),
                 bInsertLine, bDeleteLine, bShift,
                 sidebarSeparator(), sidebarSection("播放与输出"),
@@ -1537,6 +1576,71 @@ public class LrcEditorApp extends Application {
         }
     }
 
+    private void updateAutoExpandButtonStyle() {
+        if (autoExpandBtn == null || lyricView == null) return;
+        int rows = lyricView.getAutoExpandRows();
+        autoExpandBtn.setText("自动扩选 " + rows + " 行");
+        autoExpandBtn.getStyleClass().remove("is-danger");
+        if (rows > 0) {
+            autoExpandBtn.getStyleClass().add("is-danger");
+        }
+    }
+
+    private boolean confirmExclusiveSelectionMode(int expandRows) {
+        Label content = new Label(
+                "自动选择同组 与 自动扩选 " + expandRows + " 行 无法同时开启。\n"
+                        + "继续后会关闭另一项。");
+        content.setTextFill(Color.BLACK);
+        content.setWrapText(true);
+        content.setStyle(
+                "-fx-background-color:white;" +
+                        "-fx-text-fill:black;" +
+                        "-fx-font-size:14px;" +
+                        "-fx-padding:12;");
+        content.setPrefWidth(430);
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("功能冲突");
+        alert.getDialogPane().setContent(content);
+        alert.getDialogPane().setStyle("-fx-background-color:white;");
+        alert.setHeaderText(null);
+        alert.getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
+        return alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
+    }
+
+    private void showAutoExpandDialog() {
+        if (lyricView == null) return;
+
+        TextInputDialog dialog = new TextInputDialog(
+                String.valueOf(lyricView.getAutoExpandRows()));
+        dialog.setTitle("自动扩选行数");
+        dialog.setHeaderText("请输入每次单击后向下扩选的行数。\n"
+                                     + "范围：0 到 10；0 表示关闭。");
+        dialog.setContentText("扩选行数：");
+
+        dialog.showAndWait().ifPresent(value -> {
+            int rows;
+            try {
+                rows = Integer.parseInt(value.trim());
+            } catch (NumberFormatException ex) {
+                alert("请输入 0 到 10 之间的整数。");
+                return;
+            }
+            if (rows < 0 || rows > 10) {
+                alert("自动扩选行数必须在 0 到 10 之间。");
+                return;
+            }
+
+            if (rows > 0 && lyricView.isAutoSelectSameTimestamp()) {
+                if (!confirmExclusiveSelectionMode(rows)) return;
+                lyricView.setAutoSelectSameTimestamp(false);
+            }
+            lyricView.setAutoExpandRows(rows);
+            updateAutoSelectButtonStyle();
+            updateAutoExpandButtonStyle();
+        });
+    }
+
     private void updateChunkButtonStyle() {
         if (chunkToggleBtn == null) return;
         if (doc.isChunked()) {
@@ -1580,6 +1684,7 @@ public class LrcEditorApp extends Application {
 
         updateSyncJumpButtonStyle();
         updateAutoSelectButtonStyle();
+        updateAutoExpandButtonStyle();
 
         StackPane workspace = new StackPane(lyricView);
         workspace.getStyleClass().add("workspace");
