@@ -2064,7 +2064,6 @@ public class LrcEditorApp extends Application {
         lyricView.getSelectionModel().clearSelection();
         if (newSel >= 0) {
             lyricView.getSelectionModel().select(newSel);
-            lyricView.scrollTo(newSel);
         }
         refreshStatus();
         lyricView.requestFocus();
@@ -2115,7 +2114,6 @@ public class LrcEditorApp extends Application {
 
         lyricView.getSelectionModel().clearSelection();
         lyricView.getSelectionModel().select(insertPos);
-        lyricView.scrollTo(insertPos);
         refreshStatus();
         lyricView.requestFocus();
     }

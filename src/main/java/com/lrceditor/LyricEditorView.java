@@ -128,7 +128,6 @@ public class LyricEditorView extends ListView<LyricLine> {
                 doc.addLine(i + 1, new LyricLine(0L, ""));
                 getSelectionModel().clearSelection();
                 getSelectionModel().select(i + 1);
-                scrollTo(i + 1);
                 fireChanged();
                 e.consume();
             }
