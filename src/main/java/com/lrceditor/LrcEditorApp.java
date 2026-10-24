@@ -39,6 +39,7 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,6 +73,7 @@ public class LrcEditorApp extends Application {
     private static final double PREVIEW_CURRENT_SCALE = 1.24;
     private static final double PREVIEW_TEXT_INSET = 6;
     private static final String PREF_LAST_DIRECTORY = "lastDirectory";
+    private static final String PREF_LYRIC_ADVANCE_MS = "lyricAdvanceMs";
     private static final String PREF_PREVIEW_PLAYING_COLOR = "previewPlayingColor";
     private static final String PREF_APPEARANCE_THEME = "appearanceTheme";
     private static final String DARK_THEME_STYLESHEET = "/styles/dark-theme.css";
@@ -93,6 +95,7 @@ public class LrcEditorApp extends Application {
     private Waveform waveform;
     private ExecutorService bgExecutor;
     private boolean bomOnExport = false;
+    private int lyricAdvanceMs = 0;
     private double  borderOpacity = DEFAULT_BORDER_OPACITY;
 
     // ============ 波形视图动画状态 ============
@@ -154,6 +157,8 @@ public class LrcEditorApp extends Application {
     // =====================================================================
     @Override
     public void start(Stage stage) {
+        lyricAdvanceMs = Math.max(0,
+                preferences.getInt(PREF_LYRIC_ADVANCE_MS, 0));
         bgExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread t = new Thread(r, "lrceditor-bg");
             t.setDaemon(true);
@@ -196,7 +201,7 @@ public class LrcEditorApp extends Application {
         stage.show();
 
         updateCoverMenuState();
-        updateLyricPreview(0, true);
+        updateLyricPreview(lyricAdvanceMs / 1000.0, true);
 
         new AnimationTimer() {
             @Override public void handle(long now) {
@@ -239,14 +244,13 @@ public class LrcEditorApp extends Application {
                 }
 
                 double realPlaySec = cur.toSeconds();
-                updateLyricPreview(realPlaySec, false);
+                double displayPlaySec = displayPlaybackSec(realPlaySec);
+                updateLyricPreview(displayPlaySec, false);
                 tickWaveAnimation(realPlaySec);
                 drawWaveform(viewCenterSec, displayPlayheadSec);
 
-                if (lyricView.isAutoScrollToPlaying()) {
-                    Set<Integer> newSet = new HashSet<>(doc.findPlayingLineIndices(realPlaySec));
-                    lyricView.setPlayingIndices(newSet);
-                }
+                Set<Integer> newSet = new HashSet<>(doc.findPlayingLineIndices(displayPlaySec));
+                lyricView.setPlayingIndices(newSet);
             }
         }.start();
 
@@ -859,6 +863,8 @@ public class LrcEditorApp extends Application {
         add(edit, "跳转到光标处时间戳",                   this::jumpToTimestamp);
         edit.getItems().add(new SeparatorMenuItem());
         add(edit, "插入新行  (Ctrl+N)",                   this::insertNewLine);
+        add(edit, "自定义插入 N 行…",                     this::showInsertRowsDialog);
+        add(edit, "粘贴多行歌词",                          this::pasteMultilineLyrics);
         add(edit, "删除选中行  (Ctrl+D)",                 this::deleteSelectedLines);
         add(edit, "批量偏移选中时间戳…  (Ctrl+Shift+T)", this::shiftSelectedTimestamps);
         edit.getItems().add(new SeparatorMenuItem());
@@ -1182,7 +1188,8 @@ public class LrcEditorApp extends Application {
                     可输入 0 到 10；0 表示关闭，到达文件末尾时自动停止。
                     “自动选择同组”和“自动扩选”只能开启其中一个。
                     发生冲突时会显示白底黑字确认提示，确认后才切换。
-                  · “同步跳转”：控制播放高亮是否跟随歌曲自动滚动。
+                  · “自动同步”：播放进入新的歌词组时同步一次蓝色选择；之后仍可手动选择其他行编辑。黄色播放高亮始终跟随播放。
+                  · “自定义提前 N ms”：只让歌词显示提前，不修改实际 LRC 时间戳。
                   · “时间分块 / 统合”：按时间戳分组，便于查看多语言歌词。
                   · “修改 offset”：所有时间戳按目标偏移量整体移动。
 
@@ -1192,6 +1199,8 @@ public class LrcEditorApp extends Application {
                   · Space：给选中行覆盖当前播放时间。
                   · Delete：删除选中行。
                   · Insert：在选中行后插入空行。
+                  · “自定义插入 N 行”：一次插入多个空歌词行。
+                  · “粘贴多行歌词”：从剪贴板按换行拆分歌词，自动识别多个时间戳；无时间戳时继承上一句，完全无时间戳则全部初始化为 0。
                   · 单击波形：跳转到对应时间。
                   · 单击绿色 ▶：跳到该时间戳组。
                   · 播放结束后，波形会平滑回到开头。
@@ -1274,7 +1283,9 @@ public class LrcEditorApp extends Application {
                 ----------------------------------------------------------------
                   · Ctrl+S：保存歌词。
                   · Ctrl+Shift+S：另存为。
-                  · “导出歌词”会删除纯视觉空行。
+                  · “导出歌词”会打开导出窗口：可修改保存路径，预览只读文本，并可选择合并/分离相同内容的时间戳。
+                  · 合并时相同歌词内容按首次出现位置排列，所有时间戳从小到大写入同一行。
+                  · 导出预览支持 Ctrl+滚轮缩放字号；预览下方显示当前字号，并可点击“重置”恢复默认字号。
                   · “视图 → 导出时写入 UTF-8 BOM”用于兼容老播放器。
                   · 视频导出为 MP4，视频 H.264、音频 AAC。
                   · 视频取消或失败时会自动删除临时文件。
@@ -1374,10 +1385,11 @@ public class LrcEditorApp extends Application {
                   顶部预览当前行颜色可在“视图 → 当前播放行颜色”修改。
                   “自动选择同组”和“自动扩选”互斥，切换时会询问确认。
 
-                5. 同步跳转
+                5. 自动同步
                 ----------------------------------------------------------------
-                  开启：播放高亮跟随歌曲，列表自动滚动。
-                  关闭：高亮锁定在用户选中行，便于精确编辑。
+                  黄色播放高亮始终跟随当前播放组，并覆盖相同时间戳的全部行。
+                  开启：每次跳到新的歌词组时，蓝色选择同步一次并与黄色重合；随后可以自由选择其他行编辑。
+                  关闭：蓝色选择始终由用户控制，不随播放位置改变。
 
                 6. 时间分块
                 ----------------------------------------------------------------
@@ -1396,8 +1408,8 @@ public class LrcEditorApp extends Application {
 
                 9. FLAC 音频
                 ----------------------------------------------------------------
-                  首次使用时会在后台解码为临时 WAV。
-                  大文件处理需要一定时间，期间可正常使用界面。
+                  首次使用时优先用内置 FFmpeg 后台转码为临时 WAV；FFmpeg 不可用时使用 jFLAC 流式解码。
+                  大文件不会把整首 PCM 一次性放进内存，处理时间取决于文件长度，期间界面保持可用。
 
                 10. 撤销栈
                 ----------------------------------------------------------------
@@ -1457,10 +1469,13 @@ public class LrcEditorApp extends Application {
         Button bImportAudio = sidebarButton("导入音频");
         Button bMark        = sidebarButton("生成时间标记");
         Button bJump        = sidebarButton("跳到光标时间戳");
-        syncJumpBtn         = sidebarButton("同步跳转：开");
+        syncJumpBtn         = sidebarButton("自动同步：开");
+        Button bAdvance     = sidebarButton("自定义提前 " + lyricAdvanceMs + " ms");
         autoSelectBtn       = sidebarButton("自动选择同组：关");
         autoExpandBtn       = sidebarButton("自动扩选 0 行");
         Button bInsertLine  = sidebarButton("插入新行");
+        Button bInsertMany  = sidebarButton("自定义插入 2 行");
+        Button bPaste       = sidebarButton("粘贴多行歌词");
         Button bDeleteLine  = sidebarButton("删除选中行");
         Button bShift       = sidebarButton("批量偏移时间戳");
         playPauseBtn        = sidebarButton("▶ 播放");
@@ -1479,9 +1494,33 @@ public class LrcEditorApp extends Application {
         bJump.setOnAction(e -> jumpToTimestamp());
         syncJumpBtn.setOnAction(e -> {
             if (lyricView == null) return;
-            boolean newState = !lyricView.isAutoScrollToPlaying();
-            lyricView.setAutoScrollToPlaying(newState);
+            boolean newState = !lyricView.isAutoSyncSelection();
+            lyricView.setAutoSyncSelection(newState);
             updateSyncJumpButtonStyle();
+        });
+        bAdvance.setOnAction(e -> {
+            TextInputDialog dialog = new TextInputDialog(String.valueOf(lyricAdvanceMs));
+            dialog.setTitle("自定义提前量");
+            dialog.setHeaderText("播放行歌词显示提前量（毫秒）。不会修改 LRC 时间戳。");
+            dialog.setContentText("提前量(ms):");
+            dialog.showAndWait().ifPresent(value -> {
+                try {
+                    int advance = Integer.parseInt(value.trim());
+                    if (advance < 0) {
+                        alert("提前量必须是大于等于 0 的整数");
+                        return;
+                    }
+                    lyricAdvanceMs = advance;
+                    preferences.putInt(PREF_LYRIC_ADVANCE_MS, advance);
+                    bAdvance.setText("自定义提前 " + advance + " ms");
+                    double display = displayPlaybackSec(currentPlaybackSec());
+                    lyricView.setPlayingIndices(new HashSet<>(
+                            doc.findPlayingLineIndices(display)));
+                    updateLyricPreview(display, true);
+                } catch (NumberFormatException ex) {
+                    alert("请输入整数毫秒值");
+                }
+            });
         });
         autoSelectBtn.setOnAction(e -> {
             if (lyricView == null) return;
@@ -1496,6 +1535,8 @@ public class LrcEditorApp extends Application {
         });
         autoExpandBtn.setOnAction(e -> showAutoExpandDialog());
         bInsertLine.setOnAction(e -> insertNewLine());
+        bInsertMany.setOnAction(e -> showInsertRowsDialog());
+        bPaste.setOnAction(e -> pasteMultilineLyrics());
         bDeleteLine.setOnAction(e -> deleteSelectedLines());
         bShift.setOnAction(e -> shiftSelectedTimestamps());
         playPauseBtn.setOnAction(e -> togglePlay());
@@ -1507,9 +1548,9 @@ public class LrcEditorApp extends Application {
                 sidebarSection("文件"),
                 bImportLrc, bImportAudio,
                 sidebarSeparator(), sidebarSection("打点与定位"),
-                bMark, bJump, syncJumpBtn, autoSelectBtn, autoExpandBtn,
+                bMark, bJump, syncJumpBtn, bAdvance, autoSelectBtn, autoExpandBtn,
                 sidebarSeparator(), sidebarSection("编辑"),
-                bInsertLine, bDeleteLine, bShift,
+                bInsertLine, bInsertMany, bPaste, bDeleteLine, bShift,
                 sidebarSeparator(), sidebarSection("播放与输出"),
                 playPauseBtn, bOffset, chunkToggleBtn, bExport);
 
@@ -1556,11 +1597,11 @@ public class LrcEditorApp extends Application {
 
     private void updateSyncJumpButtonStyle() {
         if (syncJumpBtn == null || lyricView == null) return;
-        if (lyricView.isAutoScrollToPlaying()) {
-            syncJumpBtn.setText("同步跳转：开");
+        if (lyricView.isAutoSyncSelection()) {
+            syncJumpBtn.setText("自动同步：开");
             setButtonState(syncJumpBtn, null);
         } else {
-            syncJumpBtn.setText("同步跳转：关");
+            syncJumpBtn.setText("自动同步：关");
             setButtonState(syncJumpBtn, "is-warning");
         }
     }
@@ -2118,6 +2159,68 @@ public class LrcEditorApp extends Application {
         lyricView.requestFocus();
     }
 
+    private void showInsertRowsDialog() {
+        TextInputDialog dialog = new TextInputDialog("2");
+        dialog.setTitle("自定义插入行数");
+        dialog.setHeaderText("在当前位置插入指定数量的空歌词行。");
+        dialog.setContentText("插入行数:");
+        dialog.showAndWait().ifPresent(value -> {
+            try {
+                int count = Integer.parseInt(value.trim());
+                if (count <= 0 || count > 1000) {
+                    alert("插入行数必须在 1 到 1000 之间");
+                    return;
+                }
+                insertNewLines(count);
+            } catch (NumberFormatException ex) {
+                alert("请输入整数行数");
+            }
+        });
+    }
+
+    private void insertNewLines(int count) {
+        int selected = lyricView.getSelectionModel().getSelectedIndex();
+        int insertPosition = selected >= 0 ? selected + 1 : doc.getLines().size();
+        List<LyricLine> newLines = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            newLines.add(new LyricLine(0L, ""));
+        }
+        doc.addLines(insertPosition, newLines);
+        lyricView.getSelectionModel().clearSelection();
+        lyricView.getSelectionModel().select(insertPosition);
+        refreshStatus();
+        lyricView.requestFocus();
+    }
+
+    private void pasteMultilineLyrics() {
+        String clipboard = Clipboard.getSystemClipboard().getString();
+        if (clipboard == null || clipboard.trim().isEmpty()) {
+            alert("剪贴板中没有可粘贴的歌词");
+            return;
+        }
+        int selected = lyricView.getSelectionModel().getSelectedIndex();
+        int insertPosition = selected >= 0 ? selected : doc.getLines().size();
+        Long previousTime = previousTimestamp(insertPosition - 1);
+        List<LyricLine> parsed = LrcPasteParser.parse(clipboard, previousTime);
+        if (parsed.isEmpty()) {
+            alert("剪贴板中没有有效歌词");
+            return;
+        }
+        doc.addLines(insertPosition, parsed);
+        lyricView.getSelectionModel().clearSelection();
+        lyricView.getSelectionModel().select(insertPosition);
+        refreshStatus();
+        lyricView.requestFocus();
+    }
+
+    private Long previousTimestamp(int index) {
+        for (int i = Math.min(index, doc.getLines().size() - 1); i >= 0; i--) {
+            Long time = doc.getLines().get(i).timeMs;
+            if (time != null) return time;
+        }
+        return null;
+    }
+
     // =====================================================================
     // 跳转
     // =====================================================================
@@ -2199,19 +2302,7 @@ public class LrcEditorApp extends Application {
     }
 
     private void exportLrc(Stage stage) {
-        FileChooser fc = new FileChooser();
-        fc.setTitle("导出 LRC（删除空行）");
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("LRC 歌词", "*.lrc"));
-        fc.setInitialFileName(doc.getFile() != null ? doc.getFile().getName() : "export.lrc");
-        configureFileChooserDirectory(fc);
-        File target = fc.showSaveDialog(stage);
-        if (target == null) return;
-        rememberLastDirectory(target);
-        try {
-            LrcIo.write(target, doc.serialize(true), bomOnExport);
-        } catch (Exception ex) {
-            alert("导出失败：" + ex.getMessage());
-        }
+        LrcExportDialog.show(stage, doc, bomOnExport, "dark".equals(appearanceTheme));
     }
 
     // =====================================================================
@@ -2237,7 +2328,7 @@ public class LrcEditorApp extends Application {
         }
         encodeLabel.setText("编码: " + doc.getEncoding() + (doc.hasBom() ? " (BOM)" : ""));
         updateFileNames();
-        updateLyricPreview(currentPlaybackSec(), true);
+        updateLyricPreview(displayPlaybackSec(currentPlaybackSec()), true);
 
         if (lyricView != null) lyricView.refresh();
     }
@@ -2249,6 +2340,10 @@ public class LrcEditorApp extends Application {
         } catch (RuntimeException ex) {
             return 0;
         }
+    }
+
+    private double displayPlaybackSec(double realPlaySec) {
+        return Math.max(0, realPlaySec + lyricAdvanceMs / 1000.0);
     }
 
     private void updateFileNames() {

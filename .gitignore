@@ -28,3 +28,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+/LRC Editor/
+/LRC-Editor-Win7-x64/

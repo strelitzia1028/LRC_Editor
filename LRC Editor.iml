@@ -4,6 +4,14 @@
     <content url="file://$MODULE_DIR$" dumb="true">
       <sourceFolder url="file://$MODULE_DIR$/src/main/java" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/main/resources" type="java-resource" />
+      <excludeFolder url="file://$MODULE_DIR$/.github/modernize/java-upgrade/20261021140522" />
+      <excludeFolder url="file://$MODULE_DIR$/.github/modernize/java-upgrade/hooks" />
+      <excludeFolder url="file://$MODULE_DIR$/LRC Editor/runtime/bin" />
+      <excludeFolder url="file://$MODULE_DIR$/LRC-Editor-Win7-x64/runtime/bin" />
+      <excludeFolder url="file://$MODULE_DIR$/android/.gradle" />
+      <excludeFolder url="file://$MODULE_DIR$/android/app/build" />
+      <excludeFolder url="file://$MODULE_DIR$/LRC Editor" />
+      <excludeFolder url="file://$MODULE_DIR$/LRC-Editor-Win7-x64" />
     </content>
   </component>
 </module>

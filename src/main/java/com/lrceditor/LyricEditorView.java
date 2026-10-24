@@ -40,8 +40,8 @@ public class LyricEditorView extends ListView<LyricLine> {
     /** 播放高亮（黄）可见度（0~1）。默认 1.0 */
     private double playingHighlightOpacity = 1.0;
 
-    /** 是否在播放/拖动时自动滚动到当前时间戳所在行。默认开 */
-    private boolean autoScrollToPlaying = true;
+    /** 是否把蓝色选择自动同步到当前播放组。黄色播放高亮始终跟随播放。 */
+    private boolean autoSyncSelection = true;
 
     /** 是否自动选择相同时间戳的所有行（单击某行即选中整组）。默认关 */
     private boolean autoSelectSameTimestamp = false;
@@ -156,9 +156,6 @@ public class LyricEditorView extends ListView<LyricLine> {
                 return;
             }
 
-            if (!autoScrollToPlaying) {
-                updateLockedHighlight();
-            }
         });
     }
 
@@ -217,12 +214,16 @@ public class LyricEditorView extends ListView<LyricLine> {
     }
 
     // ============================================================
-    // 同步跳转开关
+    // 自动同步：只控制蓝色选择是否跟随当前播放组
     // ============================================================
-    public boolean isAutoScrollToPlaying() { return autoScrollToPlaying; }
+    public boolean isAutoSyncSelection() { return autoSyncSelection; }
 
-    public void setAutoScrollToPlaying(boolean enabled) {
-        this.autoScrollToPlaying = enabled;
+    public void setAutoSyncSelection(boolean enabled) {
+        this.autoSyncSelection = enabled;
+        if (enabled && !playingIndices.isEmpty()) {
+            syncSelectionToPlaying();
+            scrollToPlayingGroup();
+        }
     }
 
     // ============================================================
@@ -251,46 +252,41 @@ public class LyricEditorView extends ListView<LyricLine> {
     // 外部（播放时间）驱动的高亮
     // ============================================================
     public void setPlayingIndices(Set<Integer> indices) {
-        if (!autoScrollToPlaying) return;
-        if (indices == null) return;
-
-        if (Objects.equals(indices, playingIndices)) return;
-        playingIndices = indices;
-        repaintAllCells();
-
-        if (!playingIndices.isEmpty()) {
-            int first = playingIndices.stream().mapToInt(Integer::intValue).min().orElse(0);
-            scrollTo(Math.max(0, first - 3));
+        Set<Integer> incoming = indices == null
+                ? Collections.emptySet() : new HashSet<>(indices);
+        boolean changed = !Objects.equals(incoming, playingIndices);
+        if (changed) {
+            playingIndices = incoming;
+            repaintAllCells();
+        }
+        if (autoSyncSelection && changed && !playingIndices.isEmpty()) {
+            syncSelectionToPlaying();
+            scrollToPlayingGroup();
         }
     }
 
     // ============================================================
-    // 内部（选中行）驱动的高亮
+    // 自动选择当前播放组
     // ============================================================
-    private void updateLockedHighlight() {
-        int idx = getSelectionModel().getSelectedIndex();
-
-        Set<Integer> group;
-        if (idx < 0 || idx >= doc.getLines().size()) {
-            group = Collections.emptySet();
-        } else {
-            LyricLine sel = doc.getLines().get(idx);
-            if (sel.timeMs == null) {
-                group = Collections.emptySet();
-            } else {
-                Set<Integer> tmp = new HashSet<>();
-                for (int i = 0; i < doc.getLines().size(); i++) {
-                    LyricLine l = doc.getLines().get(i);
-                    if (sel.timeMs.equals(l.timeMs)) tmp.add(i);
-                }
-                group = tmp;
+    private boolean syncSelectionToPlaying() {
+        if (playingIndices.isEmpty()) return false;
+        Set<Integer> current = new HashSet<>(getSelectionModel().getSelectedIndices());
+        if (current.equals(playingIndices)) return false;
+        getSelectionModel().clearSelection();
+        List<Integer> ordered = new ArrayList<>(playingIndices);
+        Collections.sort(ordered);
+        for (int index : ordered) {
+            if (index >= 0 && index < getItems().size()) {
+                getSelectionModel().select(index);
             }
         }
+        return true;
+    }
 
-        if (!Objects.equals(group, playingIndices)) {
-            playingIndices = group;
-            repaintAllCells();
-        }
+    private void scrollToPlayingGroup() {
+        if (playingIndices.isEmpty()) return;
+        int first = playingIndices.stream().mapToInt(Integer::intValue).min().orElse(0);
+        scrollTo(Math.max(0, first - 3));
     }
 
     private void repaintAllCells() {
@@ -349,9 +345,7 @@ public class LyricEditorView extends ListView<LyricLine> {
         boolean selVisible  = selectedHighlightOpacity > 0.001;
         boolean playVisible = playingHighlightOpacity  > 0.001;
 
-        String altBg = darkMode
-                ? ((i % 2 == 0) ? "#0f172a" : "#111827")
-                : ((i % 2 == 0) ? "#f8fafc" : "#ffffff");
+        String normalBg = darkMode ? "#0f172a" : "#ffffff";
 
         String bg;
         if (selected && playing && selVisible) {
@@ -361,7 +355,7 @@ public class LyricEditorView extends ListView<LyricLine> {
         } else if (playing && playVisible) {
             bg = playBgColor();
         } else {
-            bg = altBg;
+            bg = normalBg;
         }
 
         String borderCss = "";
@@ -724,9 +718,6 @@ public class LyricEditorView extends ListView<LyricLine> {
             // A full refresh here rebuilds cells before a click moving focus to
             // another row is delivered, so refresh only the edited cell.
             refreshAfterEdit();
-            if (!autoScrollToPlaying) {
-                updateLockedHighlight();
-            }
             repaintAllCells();
         }
 
@@ -796,7 +787,7 @@ public class LyricEditorView extends ListView<LyricLine> {
             if (empty || item == null) {
                 bound = null;
                 setGraphic(null);
-                setStyle("");
+                setStyle("-fx-background-color:transparent;");
                 if (inEdit) {
                     inEdit = false;
                     timeField.setMouseTransparent(true);

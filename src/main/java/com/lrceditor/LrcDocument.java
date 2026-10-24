@@ -106,6 +106,14 @@ public class LrcDocument {
         dirty = true;
     }
 
+    public void addLines(int idx, List<LyricLine> newLines) {
+        if (newLines == null || newLines.isEmpty()) return;
+        snapshot();
+        int position = Math.max(0, Math.min(idx, lines.size()));
+        lines.addAll(position, newLines);
+        dirty = true;
+    }
+
     public void removeLine(int idx) {
         if (idx < 0 || idx >= lines.size()) return;
         snapshot();
