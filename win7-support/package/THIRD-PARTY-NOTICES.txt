@@ -1,0 +1,28 @@
+LRC Editor Win7 - Third-party notices
+=====================================
+
+Zulu OpenJDK 8 / OpenJDK Runtime
+--------------------------------
+Copyright and license texts are included in the packaged runtime directory.
+License: GPL v2 with the Classpath Exception.
+Project: https://www.azul.com/downloads/
+
+JavaFX 8
+--------
+JavaFX 8 is bundled with the Zulu JDK 8 runtime.
+License: GPL v2 with the Classpath Exception.
+Project: https://openjfx.io/
+
+FFmpeg 4.4.1 essentials build
+-----------------------------
+The packaged app\ffmpeg\LICENSE-FFmpeg.txt file contains the FFmpeg license.
+This build is distributed under GPL v3 and includes H.264/AAC support through
+the configured GPL-compatible build options.
+Project: https://ffmpeg.org/
+Build source: https://www.gyan.dev/ffmpeg/builds/
+
+jFLAC Codec 1.5.2
+-----------------
+License: GNU Lesser General Public License, version 2.1.
+Project: https://github.com/nguillaumin/jflac
+License text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt

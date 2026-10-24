@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LRC 歌词编辑器</string>
+    <string name="empty_lyrics">导入 LRC 歌词或新建空白文档</string>
+    <string name="no_audio">未导入音频</string>
+    <string name="import_audio">导入音频</string>
+    <string name="import_lyrics">导入歌词</string>
+    <string name="save_lyrics">保存歌词</string>
+    <string name="export_lyrics">导出歌词</string>
+    <string name="new_document">新建文档</string>
+    <string name="undo">撤销</string>
+    <string name="redo">重做</string>
+    <string name="add_line">新增行</string>
+    <string name="insert_rows">插入多行</string>
+    <string name="paste_lyrics">粘贴多行</string>
+    <string name="delete_line">删除行</string>
+    <string name="edit_line">编辑行</string>
+    <string name="stamp">打点</string>
+    <string name="play_from_line">从此行播放</string>
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="appearance">外观</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="light_mode">浅色模式</string>
+    <string name="more">更多</string>
+    <string name="lyrics_preview_placeholder">当前播放歌词</string>
+    <string name="rewind">后退 3 秒</string>
+    <string name="forward">前进 3 秒</string>
+    <string name="offset">批量偏移</string>
+    <string name="time_chunk">时间分块</string>
+    <string name="auto_scroll">自动同步</string>
+    <string name="auto_group">自动选择同组</string>
+    <string name="auto_expand">自动扩选</string>
+    <string name="preview_color">当前行颜色</string>
+    <string name="status_ready">就绪</string>
+    <string name="status_no_lyrics">尚未导入歌词</string>
+    <string name="status_no_audio">尚未导入音频</string>
+    <string name="audio_waveform_loading">正在分析波形…</string>
+    <string name="audio_waveform_unavailable">波形不可用，仍可正常播放</string>
+</resources>

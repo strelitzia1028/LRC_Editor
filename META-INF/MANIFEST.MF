@@ -1,0 +1,8 @@
+Manifest-Version: 1.0
+Permissions: sandbox
+JavaFX-Version: 8.0
+Class-Path: E:\26827\Documents\IDEA\LRC Editor\target\win7-base\jflac-
+ codec-1.5.2.jar
+Created-By: JavaFX Packager
+Main-Class: com.lrceditor.LrcEditorApp
+

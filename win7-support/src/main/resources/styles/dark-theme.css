@@ -1,0 +1,124 @@
+.context-menu {
+    -fx-background-color: #111827;
+    -fx-border-color: #334155;
+    -fx-border-width: 1;
+    -fx-padding: 4;
+}
+
+.menu-item {
+    -fx-background-color: #111827;
+    -fx-padding: 6 24 6 12;
+    -fx-mark-color: #e2e8f0;
+    -fx-focused-mark-color: #ffffff;
+}
+
+.menu-item:focused,
+.menu-item:hover {
+    -fx-background-color: #1e293b;
+    -fx-mark-color: #ffffff;
+    -fx-focused-mark-color: #ffffff;
+}
+
+.menu-item .label {
+    -fx-text-fill: #e2e8f0;
+}
+
+.menu-item:disabled .label {
+    -fx-text-fill: #64748b;
+}
+
+.menu-bar .menu-button .label {
+    -fx-text-fill: #f8fafc;
+}
+
+.menu-bar .menu-button:hover,
+.menu-bar .menu-button:showing {
+    -fx-background-color: #1e293b;
+    -fx-background-radius: 6;
+}
+
+.menu-bar .menu-button:hover .label,
+.menu-bar .menu-button:showing .label {
+    -fx-text-fill: #ffffff;
+}
+
+.combo-box-popup .list-view,
+.choice-box-popup .list-view {
+    -fx-background-color: #111827;
+    -fx-control-inner-background: #111827;
+    -fx-border-color: #334155;
+    -fx-border-width: 1;
+}
+
+.combo-box-popup .list-cell,
+.choice-box-popup .list-cell {
+    -fx-background-color: #111827;
+    -fx-text-fill: #e2e8f0;
+    -fx-padding: 6 10 6 10;
+}
+
+.combo-box-popup .list-cell:filled:hover,
+.choice-box-popup .list-cell:filled:hover,
+.combo-box-popup .list-cell:filled:selected,
+.choice-box-popup .list-cell:filled:selected {
+    -fx-background-color: #1e293b;
+    -fx-text-fill: #ffffff;
+}
+
+.color-palette {
+    -fx-background-color: #111827;
+    -fx-border-color: #334155;
+}
+
+.color-palette .label {
+    -fx-text-fill: #e2e8f0;
+}
+
+.dialog-pane {
+    -fx-background-color: #111827;
+}
+
+.dialog-pane .label {
+    -fx-text-fill: #e2e8f0;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: #0f172a;
+}
+
+.tooltip {
+    -fx-background-color: #1e293b;
+    -fx-text-fill: #e2e8f0;
+    -fx-border-color: #334155;
+    -fx-border-width: 1;
+}
+
+.scroll-bar {
+    -fx-background-color: #0f172a;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #475569;
+    -fx-background-radius: 5;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: #0f172a;
+}
+
+.video-trim-label {
+    -fx-text-fill: #cbd5e1;
+}
+
+.video-trim-toggle {
+    -fx-background-color: #1e293b;
+    -fx-text-fill: #e2e8f0;
+    -fx-border-color: #475569;
+}
+
+.video-trim-toggle:selected {
+    -fx-background-color: #14532d;
+    -fx-text-fill: #86efac;
+    -fx-border-color: #22c55e;
+}
