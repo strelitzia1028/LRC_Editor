@@ -85,7 +85,8 @@ public final class LyricVideoExporter {
             double trimStartSeconds,
             double trimEndSeconds,
             double scrollSpeedMultiplier,
-            String backgroundFitMode) {
+            String backgroundFitMode,
+            int visibleLineCount) {
 
         public Settings(
                 File output,
@@ -103,7 +104,7 @@ public final class LyricVideoExporter {
             this(output, audio, lyrics, width, height, fps, lyricEffect,
                     backgroundMode, backgroundPreset, customBackground,
                     durationSeconds, textColor, 0, -1, -1,
-                    TextureMode.NONE, 0, 0, 0, 0, 0, 0, null);
+                    TextureMode.NONE, 0, 0, 0, 0, 0, 0, null, 3);
         }
 
         public Settings(
@@ -124,7 +125,7 @@ public final class LyricVideoExporter {
             this(output, audio, lyrics, width, height, fps, lyricEffect,
                     backgroundMode, backgroundPreset, customBackground,
                     durationSeconds, textColor, fontSize, lineSpacing, -1,
-                    TextureMode.NONE, 0, 0, 0, 0, 0, 0, null);
+                    TextureMode.NONE, 0, 0, 0, 0, 0, 0, null, 3);
         }
 
         public Settings(
@@ -146,7 +147,7 @@ public final class LyricVideoExporter {
             this(output, audio, lyrics, width, height, fps, lyricEffect,
                     backgroundMode, backgroundPreset, customBackground,
                     durationSeconds, textColor, fontSize, lineSpacing,
-                    nonCurrentFontReduction, TextureMode.NONE, 0, 0, 0, 0, 0, 0, null);
+                    nonCurrentFontReduction, TextureMode.NONE, 0, 0, 0, 0, 0, 0, null, 3);
         }
 
         public Settings(
@@ -173,7 +174,7 @@ public final class LyricVideoExporter {
                     backgroundMode, backgroundPreset, customBackground,
                     durationSeconds, textColor, fontSize, lineSpacing,
                     nonCurrentFontReduction, textureMode, blurPercent,
-                    grainPercent, darkOpacityPercent, 0, 0, 0, null);
+                    grainPercent, darkOpacityPercent, 0, 0, 0, null, 3);
         }
 
         public Settings(
@@ -203,7 +204,7 @@ public final class LyricVideoExporter {
                     durationSeconds, textColor, fontSize, lineSpacing,
                     nonCurrentFontReduction, textureMode, blurPercent,
                     grainPercent, darkOpacityPercent, trimStartSeconds,
-                    trimEndSeconds, 0, null);
+                    trimEndSeconds, 0, null, 3);
         }
 
         public Settings(
@@ -234,7 +235,7 @@ public final class LyricVideoExporter {
                     durationSeconds, textColor, fontSize, lineSpacing,
                     nonCurrentFontReduction, textureMode, blurPercent,
                     grainPercent, darkOpacityPercent, trimStartSeconds,
-                    trimEndSeconds, scrollSpeedMultiplier, null);
+                    trimEndSeconds, scrollSpeedMultiplier, null, 3);
         }
     }
 
@@ -608,7 +609,7 @@ public final class LyricVideoExporter {
             if (settings.lyricEffect() == LyricEffect.DIRECT_FLICKER) {
                 appendDirectEvent(ass, start, end, text, settings, false);
             } else if (settings.lyricEffect() == LyricEffect.SCROLL_VERTICAL) {
-                appendVerticalThreeLineEvents(
+                appendVerticalScrollEvents(
                         ass, entries, i, start, end, durationSeconds, settings);
             } else if (settings.lyricEffect() == LyricEffect.SCROLL_HORIZONTAL) {
                 appendHorizontalThreeLineEvents(
@@ -707,7 +708,7 @@ public final class LyricVideoExporter {
         return count;
     }
 
-    private static void appendVerticalThreeLineEvents(
+    private static void appendVerticalScrollEvents(
             StringBuilder ass,
             List<Entry> entries,
             int index,
@@ -716,12 +717,7 @@ public final class LyricVideoExporter {
             double totalDuration,
             Settings settings) {
         int width = settings.width();
-        String previous = adjacentText(entries, index - 1);
-        String current = escapeAss(entries.get(index).text);
-        String next = adjacentText(entries, index + 1);
-        String afterNext = adjacentText(entries, index + 2);
-        LayoutMetrics from = layoutMetrics(settings, previous, current, next);
-        LayoutMetrics to = layoutMetrics(settings, current, next, afterNext);
+        VerticalLayout from = verticalLayout(settings, entries, index);
         double available = Math.max(0.35, end - start);
         double baseMoveMs = Math.max(220, Math.min(600,
                 available * 1000 * 0.30));
@@ -733,75 +729,140 @@ public final class LyricVideoExporter {
 
         String currentColor = assColorTag(settings.textColor());
         String mutedColor = "&HB8A394&";
-        if (!previous.isEmpty()) {
-            appendDialogue(ass, start, transitionStart, previous,
+        for (VerticalSlot slot : from.slots) {
+            String color = slot.current ? currentColor : mutedColor;
+            appendDialogue(ass, start, transitionStart,
+                    escapeAss(entries.get(slot.entryIndex).text),
                     "{\\an5\\pos(" + (width / 2) + ","
-                            + Math.round(from.previousCenter) + ")\\fs"
-                            + from.nonCurrentFontSize + "\\1c" + mutedColor + "}");
+                            + Math.round(slot.centerY) + ")\\fs"
+                            + slot.fontSize + "\\1c" + color + "}");
         }
 
-        appendDialogue(ass, start, transitionStart, current,
-                "{\\an5\\pos(" + (width / 2) + ","
-                        + Math.round(from.currentCenter) + ")\\fs"
-                        + from.currentFontSize + "\\1c" + currentColor + "}");
+        if (index + 1 >= entries.size()) return;
 
-        if (!next.isEmpty()) {
-            appendDialogue(ass, start, transitionStart, next,
-                    "{\\an5\\pos(" + (width / 2) + ","
-                            + Math.round(from.nextCenter) + ")\\fs"
-                            + from.nonCurrentFontSize + "\\1c" + mutedColor + "}");
+        VerticalLayout to = verticalLayout(settings, entries, index + 1);
+        java.util.Map<Integer, VerticalSlot> oldSlots = from.byIndex();
+        java.util.Map<Integer, VerticalSlot> newSlots = to.byIndex();
+        java.util.TreeSet<Integer> union = new java.util.TreeSet<>();
+        union.addAll(oldSlots.keySet());
+        union.addAll(newSlots.keySet());
+        double offscreenShift = Math.max(height(settings),
+                Math.max(from.totalHeight, to.totalHeight) * 1.15);
 
-            double midTime = transitionStart + moveMs / 2000.0;
-            long halfMs = Math.max(100, moveMs / 2);
-            double currentMid = (from.currentCenter + to.previousCenter) / 2.0;
-            double nextMid = (from.nextCenter + to.currentCenter) / 2.0;
-            double previousExit = from.previousCenter
-                                  - from.nonCurrentLineHeight * 0.75;
+        for (int entryIndex : union) {
+            VerticalSlot oldSlot = oldSlots.get(entryIndex);
+            VerticalSlot newSlot = newSlots.get(entryIndex);
+            double fromY;
+            double toY;
+            int fromFont;
+            int toFont;
+            String fromColor;
+            String toColor;
 
-            if (!previous.isEmpty()) {
-                appendDialogue(ass, transitionStart, midTime, previous,
-                        "{\\move(" + (width / 2) + ","
-                                + Math.round(from.previousCenter)
-                                + "," + (width / 2) + "," + Math.round(previousExit)
-                                + ",0," + halfMs + ")\\fs" + from.nonCurrentFontSize
-                                + "\\1c" + mutedColor + "}");
+            if (oldSlot != null && newSlot != null) {
+                fromY = oldSlot.centerY;
+                toY = newSlot.centerY;
+                fromFont = oldSlot.fontSize;
+                toFont = newSlot.fontSize;
+                fromColor = oldSlot.current ? currentColor : mutedColor;
+                toColor = newSlot.current ? currentColor : mutedColor;
+            } else if (oldSlot != null) {
+                fromY = oldSlot.centerY;
+                toY = oldSlot.centerY - offscreenShift;
+                fromFont = oldSlot.fontSize;
+                toFont = oldSlot.fontSize;
+                fromColor = oldSlot.current ? currentColor : mutedColor;
+                toColor = fromColor;
+            } else {
+                fromY = newSlot.centerY + offscreenShift;
+                toY = newSlot.centerY;
+                fromFont = newSlot.current
+                        ? to.nonCurrentFontSize : newSlot.fontSize;
+                toFont = newSlot.fontSize;
+                fromColor = mutedColor;
+                toColor = newSlot.current ? currentColor : mutedColor;
             }
-            appendDialogue(ass, transitionStart, midTime, current,
-                    "{\\move(" + (width / 2) + "," + Math.round(from.currentCenter)
-                            + "," + (width / 2) + "," + Math.round(currentMid)
-                            + ",0," + halfMs + ")\\fs" + from.currentFontSize
-                            + "\\1c" + currentColor + "}");
-            appendDialogue(ass, transitionStart, midTime, next,
-                    "{\\move(" + (width / 2) + "," + Math.round(from.nextCenter)
-                            + "," + (width / 2) + "," + Math.round(nextMid)
-                            + ",0," + halfMs + ")\\fs" + from.nonCurrentFontSize
-                            + "\\1c" + mutedColor + "}");
 
-            appendDialogue(ass, midTime, end, current,
-                    "{\\move(" + (width / 2) + "," + Math.round(currentMid)
-                            + "," + (width / 2) + "," + Math.round(to.previousCenter)
-                            + ",0," + halfMs + ")\\fs" + from.currentFontSize
-                            + "\\1c" + currentColor
-                            + "\\t(0," + halfMs + ",\\fs" + to.nonCurrentFontSize
-                            + ",\\1c" + mutedColor + ")}");
-            appendDialogue(ass, midTime, end, next,
-                    "{\\move(" + (width / 2) + "," + Math.round(nextMid)
-                            + "," + (width / 2) + "," + Math.round(to.currentCenter)
-                            + ",0," + halfMs + ")\\fs" + from.nonCurrentFontSize
-                            + "\\1c" + mutedColor
-                            + "\\t(0," + halfMs + ",\\fs" + to.currentFontSize
-                            + ",\\1c" + currentColor + ")}");
-            if (!afterNext.isEmpty()) {
-                double enterY = from.nextCenter
-                                + from.nonCurrentLineHeight * Math.max(1, lineCount(next))
-                                + from.gap;
-                appendDialogue(ass, midTime, end, afterNext,
-                        "{\\move(" + (width / 2) + "," + Math.round(enterY)
-                                + "," + (width / 2) + "," + Math.round(to.nextCenter)
-                                + ",0," + halfMs + ")\\fs" + to.nonCurrentFontSize
-                                + "\\1c" + mutedColor + "}");
-            }
+            String tags = "{\\move(" + (width / 2) + ","
+                    + Math.round(fromY) + "," + (width / 2) + ","
+                    + Math.round(toY) + ",0," + moveMs + ")\\fs"
+                    + fromFont + "\\1c" + fromColor
+                    + "\\t(0," + moveMs + ",\\fs" + toFont
+                    + ",\\1c" + toColor + ")}";
+            appendDialogue(ass, transitionStart, end,
+                    escapeAss(entries.get(entryIndex).text), tags);
         }
+    }
+
+    private static int height(Settings settings) {
+        return settings.height();
+    }
+
+    private static VerticalLayout verticalLayout(
+            Settings settings, List<Entry> entries, int currentIndex) {
+        int visibleCount = Math.max(1, Math.min(10, settings.visibleLineCount()));
+        int above = (visibleCount - 1) / 2;
+        int[] indices = new int[visibleCount];
+        int[] counts = new int[visibleCount];
+        for (int i = 0; i < visibleCount; i++) {
+            int entryIndex = currentIndex - above + i;
+            indices[i] = entryIndex >= 0 && entryIndex < entries.size()
+                    ? entryIndex : -1;
+            counts[i] = indices[i] >= 0
+                    ? Math.max(1, lineCount(entries.get(indices[i]).text)) : 1;
+        }
+
+        int currentFont = settings.fontSize() > 0
+                ? settings.fontSize()
+                : Math.max(22, (int) Math.round(settings.height() * 0.052));
+        int nonCurrentFont = reducedFont(currentFont,
+                settings.nonCurrentFontReduction());
+        int spacing = settings.lineSpacing() >= 0
+                ? settings.lineSpacing()
+                : Math.max(2, Math.round(currentFont * 0.12f));
+        double availableHeight = settings.height() * 0.78;
+        double currentLineHeight;
+        double nonCurrentLineHeight;
+        double gap;
+        double totalHeight;
+        do {
+            currentLineHeight = currentFont * 1.35 + spacing;
+            nonCurrentLineHeight = nonCurrentFont * 1.35 + spacing;
+            gap = Math.max(18, currentFont * 0.55);
+            totalHeight = 0;
+            for (int i = 0; i < visibleCount; i++) {
+                double lineHeight = i == above
+                        ? currentLineHeight : nonCurrentLineHeight;
+                totalHeight += counts[i] * lineHeight;
+                if (i + 1 < visibleCount) totalHeight += gap;
+            }
+            if (totalHeight <= availableHeight) break;
+            currentFont = Math.max(12, currentFont - 2);
+            nonCurrentFont = reducedFont(currentFont,
+                    settings.nonCurrentFontReduction());
+            if (settings.lineSpacing() < 0) {
+                spacing = Math.max(1, Math.round(currentFont * 0.12f));
+            }
+        } while (currentFont > 12);
+
+        double top = Math.max(settings.height() * 0.08,
+                (settings.height() - totalHeight) / 2.0);
+        List<VerticalSlot> slots = new ArrayList<>();
+        double cursor = top;
+        for (int i = 0; i < visibleCount; i++) {
+            boolean current = i == above;
+            double lineHeight = current ? currentLineHeight : nonCurrentLineHeight;
+            double slotHeight = counts[i] * lineHeight;
+            if (indices[i] >= 0) {
+                slots.add(new VerticalSlot(indices[i],
+                        cursor + slotHeight / 2.0,
+                        current ? currentFont : nonCurrentFont,
+                        current));
+            }
+            cursor += slotHeight + gap;
+        }
+        return new VerticalLayout(slots, currentFont, nonCurrentFont,
+                totalHeight);
     }
 
     private static void appendHorizontalThreeLineEvents(
@@ -1034,5 +1095,28 @@ public final class LyricVideoExporter {
             double currentCenter,
             double nextCenter,
             double nextEntryStartY) {
+    }
+
+    private record VerticalSlot(
+            int entryIndex,
+            double centerY,
+            int fontSize,
+            boolean current) {
+    }
+
+    private record VerticalLayout(
+            List<VerticalSlot> slots,
+            int currentFontSize,
+            int nonCurrentFontSize,
+            double totalHeight) {
+
+        private java.util.Map<Integer, VerticalSlot> byIndex() {
+            java.util.Map<Integer, VerticalSlot> result =
+                    new java.util.LinkedHashMap<>();
+            for (VerticalSlot slot : slots) {
+                result.put(slot.entryIndex(), slot);
+            }
+            return result;
+        }
     }
 }

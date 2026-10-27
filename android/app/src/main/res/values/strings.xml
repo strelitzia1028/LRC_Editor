@@ -14,6 +14,12 @@
     <string name="insert_rows">插入多行</string>
     <string name="paste_lyrics">粘贴多行</string>
     <string name="delete_line">删除行</string>
+    <string name="move_content_up">内容上移</string>
+    <string name="move_content_down">内容下移</string>
+    <string name="move_mode_title">转移/交换/覆盖模式</string>
+    <string name="move_mode_transfer">转移/交换/覆盖：转移</string>
+    <string name="move_mode_swap">转移/交换/覆盖：交换</string>
+    <string name="move_mode_overwrite">转移/交换/覆盖：覆盖</string>
     <string name="edit_line">编辑行</string>
     <string name="stamp">打点</string>
     <string name="play_from_line">从此行播放</string>

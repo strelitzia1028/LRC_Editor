@@ -40,7 +40,8 @@ public final class Win7VideoExportSmoke {
                 audio == null ? 0 : 0.5,
                 audio == null ? 0 : 5.0,
                 1.0,
-                null);
+                null,
+                5);
         LyricVideoExporter.export(settings, value -> { }, () -> false);
         File output = new File(args[0]);
         if (!output.isFile() || output.length() == 0) {

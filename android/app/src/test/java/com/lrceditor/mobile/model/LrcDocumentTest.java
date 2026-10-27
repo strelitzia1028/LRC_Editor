@@ -43,6 +43,152 @@ public final class LrcDocumentTest {
     }
 
     @Test
+    public void movesSelectedContentUpWithoutMovingTimestamps() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n");
+
+        List<Integer> moved = document.moveContentMany(
+                Arrays.asList(0, 1, 2), -1);
+
+        assertEquals(Arrays.asList(0, 1, 2), moved);
+        assertEquals(4, document.getLines().size());
+        assertEquals(Long.valueOf(0), document.getLines().get(0).timeMs);
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals(Long.valueOf(1000), document.getLines().get(1).timeMs);
+        assertEquals("B", document.getLines().get(1).text);
+        assertEquals(Long.valueOf(2000), document.getLines().get(2).timeMs);
+        assertEquals("C", document.getLines().get(2).text);
+        assertEquals(Long.valueOf(3000), document.getLines().get(3).timeMs);
+        assertEquals("", document.getLines().get(3).text);
+
+        document.undo();
+        assertEquals(3, document.getLines().size());
+        assertEquals("A", document.getLines().get(0).text);
+    }
+
+    @Test
+    public void movesSelectedContentDownAndAppendsOneSecondBoundary() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n");
+
+        List<Integer> moved = document.moveContentMany(
+                Arrays.asList(0, 1, 2), 1);
+
+        assertEquals(Arrays.asList(1, 2, 3), moved);
+        assertEquals(4, document.getLines().size());
+        assertEquals(Long.valueOf(1000), document.getLines().get(0).timeMs);
+        assertEquals("", document.getLines().get(0).text);
+        assertEquals(Long.valueOf(2000), document.getLines().get(1).timeMs);
+        assertEquals("A", document.getLines().get(1).text);
+        assertEquals(Long.valueOf(3000), document.getLines().get(2).timeMs);
+        assertEquals("B", document.getLines().get(2).text);
+        assertEquals(Long.valueOf(4000), document.getLines().get(3).timeMs);
+        assertEquals("C", document.getLines().get(3).text);
+    }
+
+    @Test
+    public void swapModePushesMiddleRowsInsteadOfOverwriting() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n[00:04.000]D\n");
+
+        document.moveContentMany(
+                Arrays.asList(1, 2), -1, LrcDocument.MOVE_MODE_SWAP);
+
+        assertEquals("B", document.getLines().get(0).text);
+        assertEquals("C", document.getLines().get(1).text);
+        assertEquals("A", document.getLines().get(2).text);
+        assertEquals("D", document.getLines().get(3).text);
+        assertEquals(Long.valueOf(1000), document.getLines().get(0).timeMs);
+        assertEquals(Long.valueOf(4000), document.getLines().get(3).timeMs);
+
+        document.undo();
+        document.moveContentMany(
+                Arrays.asList(1, 2), 1, LrcDocument.MOVE_MODE_SWAP);
+
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals("D", document.getLines().get(1).text);
+        assertEquals("B", document.getLines().get(2).text);
+        assertEquals("C", document.getLines().get(3).text);
+    }
+
+    @Test
+    public void swapModeKeepsBoundaryTimestampRules() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n");
+
+        document.moveContentMany(
+                Arrays.asList(0, 1, 2), -1, LrcDocument.MOVE_MODE_SWAP);
+        assertEquals(Long.valueOf(0), document.getLines().get(0).timeMs);
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals("B", document.getLines().get(1).text);
+        assertEquals("C", document.getLines().get(2).text);
+        assertEquals("", document.getLines().get(3).text);
+
+        document.undo();
+        document.moveContentMany(
+                Arrays.asList(0, 1, 2), 1, LrcDocument.MOVE_MODE_SWAP);
+        assertEquals("", document.getLines().get(0).text);
+        assertEquals("A", document.getLines().get(1).text);
+        assertEquals("B", document.getLines().get(2).text);
+        assertEquals("C", document.getLines().get(3).text);
+        assertEquals(Long.valueOf(4000), document.getLines().get(3).timeMs);
+    }
+
+    @Test
+    public void transferModeLeavesZeroTimestampBlankAtSource() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n");
+
+        document.moveContentMany(
+                Arrays.asList(1), -1, LrcDocument.MOVE_MODE_TRANSFER);
+
+        assertEquals(4, document.getLines().size());
+        assertEquals(Long.valueOf(0), document.getLines().get(0).timeMs);
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals(Long.valueOf(1000), document.getLines().get(1).timeMs);
+        assertEquals("B", document.getLines().get(1).text);
+        assertEquals(Long.valueOf(0), document.getLines().get(2).timeMs);
+        assertEquals("", document.getLines().get(2).text);
+        assertEquals(Long.valueOf(3000), document.getLines().get(3).timeMs);
+        assertEquals("C", document.getLines().get(3).text);
+    }
+
+    @Test
+    public void transferModePushesFollowingRowsDown() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]B\n[00:03.000]C\n[00:04.000]D\n");
+
+        document.moveContentMany(
+                Arrays.asList(1), 1, LrcDocument.MOVE_MODE_TRANSFER);
+
+        assertEquals(5, document.getLines().size());
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals(Long.valueOf(0), document.getLines().get(1).timeMs);
+        assertEquals("", document.getLines().get(1).text);
+        assertEquals(Long.valueOf(3000), document.getLines().get(2).timeMs);
+        assertEquals("B", document.getLines().get(2).text);
+        assertEquals("C", document.getLines().get(3).text);
+        assertEquals(Long.valueOf(5000), document.getLines().get(4).timeMs);
+        assertEquals("D", document.getLines().get(4).text);
+    }
+
+    @Test
+    public void transferModeToEmptyTargetBehavesLikeOverwrite() {
+        LrcDocument document = new LrcDocument();
+        document.load("[00:01.000]A\n[00:02.000]\n[00:03.000]C\n");
+
+        document.moveContentMany(
+                Arrays.asList(2), -1, LrcDocument.MOVE_MODE_TRANSFER);
+
+        assertEquals(3, document.getLines().size());
+        assertEquals("A", document.getLines().get(0).text);
+        assertEquals(Long.valueOf(2000), document.getLines().get(1).timeMs);
+        assertEquals("C", document.getLines().get(1).text);
+        assertEquals(Long.valueOf(3000), document.getLines().get(2).timeMs);
+        assertEquals("", document.getLines().get(2).text);
+    }
+
+    @Test
     public void insertsDeletesAndFindsGroups() {
         LrcDocument document = new LrcDocument();
         document.load("[00:01.000]A\n[00:01.000]B\n[00:02.000]C\n");

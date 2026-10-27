@@ -9,6 +9,9 @@ import java.util.*;
 public class LrcDocument {
 
     private static final int MAX_UNDO = 300;
+    public static final int MOVE_MODE_TRANSFER = 0;
+    public static final int MOVE_MODE_SWAP = 1;
+    public static final int MOVE_MODE_OVERWRITE = 2;
 
     private final ObservableList<LyricLine> lines = FXCollections.observableArrayList();
     private final Deque<List<LyricLine>> undoStack = new ArrayDeque<>();
@@ -172,6 +175,204 @@ public class LrcDocument {
             }
         }
         dirty = true;
+    }
+
+    /**
+     * 将选中行的歌词内容整体移动一格，所有现有行的时间戳保持不变。
+     * direction 为 -1 时上移，为 1 时下移。
+     */
+    public List<Integer> moveContentMany(List<Integer> indices, int direction) {
+        return moveContentMany(indices, direction, false);
+    }
+
+    public List<Integer> moveContentMany(
+            List<Integer> indices, int direction, boolean transferMode) {
+        return moveContentMany(indices, direction,
+                transferMode ? MOVE_MODE_SWAP : MOVE_MODE_OVERWRITE);
+    }
+
+    /**
+     * mode 使用 MOVE_MODE_TRANSFER、MOVE_MODE_SWAP 或 MOVE_MODE_OVERWRITE。
+     */
+    public List<Integer> moveContentMany(
+            List<Integer> indices, int direction, int moveMode) {
+        if ((direction != -1 && direction != 1)
+                || moveMode < MOVE_MODE_TRANSFER
+                || moveMode > MOVE_MODE_OVERWRITE
+                || indices == null || indices.isEmpty() || lines.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        TreeSet<Integer> valid = new TreeSet<Integer>();
+        for (int index : indices) {
+            if (index < 0 || index >= lines.size()) continue;
+            LyricLine line = lines.get(index);
+            if (line.timeMs != null || !line.text.trim().isEmpty()) valid.add(index);
+        }
+        if (valid.isEmpty()) return Collections.emptyList();
+
+        List<Integer> selected = new ArrayList<Integer>(valid);
+        int effectiveMode = moveMode;
+        if (moveMode == MOVE_MODE_TRANSFER
+                && !transferWouldOverwrite(lines, selected, direction)) {
+            effectiveMode = MOVE_MODE_OVERWRITE;
+        }
+        int originalLast = lines.size() - 1;
+        snapshot();
+        List<LyricLine> working = deepCopy();
+
+        if (effectiveMode == MOVE_MODE_TRANSFER) {
+            int first = selected.get(0);
+            int last = selected.get(selected.size() - 1);
+            List<Integer> targets = new ArrayList<Integer>(selected.size());
+            if (direction < 0) {
+                working.add(0, new LyricLine(0L, working.get(0).text));
+                for (int i = 0; i <= last; i++) {
+                    working.get(i).text = working.get(i + 1).text;
+                }
+                working.get(last + 1).text = "";
+                working.get(last + 1).timeMs = 0L;
+                targets.addAll(selected);
+            } else {
+                working.add(new LyricLine(
+                        oneSecondAfterLatestTimestamp(working, working.size() - 1),
+                        working.get(working.size() - 1).text));
+                for (int i = working.size() - 1; i > first; i--) {
+                    working.get(i).text = working.get(i - 1).text;
+                }
+                working.get(first).text = "";
+                working.get(first).timeMs = 0L;
+                for (int index : selected) targets.add(index + 1);
+            }
+            lines.setAll(working);
+            dirty = true;
+            return targets;
+        }
+
+        boolean insertTop = direction < 0 && selected.get(0) == 0;
+        if (insertTop) {
+            working.add(0, new LyricLine(0L, working.get(0).text));
+        }
+
+        List<Integer> adjusted = new ArrayList<Integer>(selected.size());
+        for (int index : selected) adjusted.add(index + (insertTop ? 1 : 0));
+
+        boolean appendBottom = direction > 0
+                && selected.get(selected.size() - 1) == originalLast;
+        if (appendBottom) {
+            int lastIndex = adjusted.get(adjusted.size() - 1);
+            working.add(new LyricLine(
+                    oneSecondAfterLatestTimestamp(working, lastIndex),
+                    working.get(lastIndex).text));
+        }
+
+        List<Integer> targets = new ArrayList<Integer>(adjusted.size());
+        for (int i = 0; i < adjusted.size(); i++) {
+            targets.add(adjusted.get(i) + direction);
+        }
+
+        if (effectiveMode == MOVE_MODE_SWAP) {
+            moveContentSwap(
+                    working, adjusted, direction, insertTop, appendBottom);
+        } else {
+            List<String> movedTexts = new ArrayList<String>(adjusted.size());
+            for (int index : adjusted) movedTexts.add(working.get(index).text);
+            for (int index : adjusted) working.get(index).text = "";
+            for (int i = 0; i < adjusted.size(); i++) {
+                working.get(targets.get(i)).text = movedTexts.get(i);
+            }
+        }
+
+        lines.setAll(working);
+        dirty = true;
+        return targets;
+    }
+
+    private boolean transferWouldOverwrite(
+            List<LyricLine> source,
+            List<Integer> selected,
+            int direction) {
+        java.util.Set<Integer> selectedSet =
+                new java.util.HashSet<Integer>(selected);
+        for (int index : selected) {
+            int target = index + direction;
+            if (target < 0 || target >= source.size()) return true;
+            if (selectedSet.contains(target)) continue;
+            if (!source.get(target).text.trim().isEmpty()) return true;
+        }
+        return false;
+    }
+
+    private void moveContentSwap(
+            List<LyricLine> working,
+            List<Integer> selected,
+            int direction,
+            boolean insertedTop,
+            boolean appendedBottom) {
+        int runStart = selected.get(0);
+        int runEnd = runStart;
+        for (int i = 1; i < selected.size(); i++) {
+            int index = selected.get(i);
+            if (index == runEnd + 1) {
+                runEnd = index;
+            } else {
+                moveTransferRun(working, runStart, runEnd, direction,
+                        insertedTop, appendedBottom);
+                runStart = index;
+                runEnd = index;
+            }
+        }
+        moveTransferRun(working, runStart, runEnd, direction,
+                insertedTop, appendedBottom);
+    }
+
+    private void moveTransferRun(
+            List<LyricLine> working,
+            int start,
+            int end,
+            int direction,
+            boolean insertedTop,
+            boolean appendedBottom) {
+        if (direction < 0) {
+            if (insertedTop && start == 1) {
+                for (int i = start; i <= end; i++) {
+                    working.get(i - 1).text = working.get(i).text;
+                }
+                working.get(end).text = "";
+                return;
+            }
+            String displaced = working.get(start - 1).text;
+            for (int i = start - 1; i < end; i++) {
+                working.get(i).text = working.get(i + 1).text;
+            }
+            working.get(end).text = displaced;
+            return;
+        }
+
+        if (appendedBottom && end == working.size() - 2) {
+            for (int i = end; i >= start; i--) {
+                working.get(i + 1).text = working.get(i).text;
+            }
+            working.get(start).text = "";
+            return;
+        }
+        String displaced = working.get(end + 1).text;
+        for (int i = end + 1; i > start; i--) {
+            working.get(i).text = working.get(i - 1).text;
+        }
+        working.get(start).text = displaced;
+    }
+
+    private long oneSecondAfterLatestTimestamp(
+            List<LyricLine> source, int lastIndex) {
+        long latest = -1L;
+        for (int i = 0; i <= lastIndex && i < source.size(); i++) {
+            Long time = source.get(i).timeMs;
+            if (time != null && time > latest) latest = time;
+        }
+        if (latest < 0) return 1000L;
+        return latest > Long.MAX_VALUE - 1000L
+                ? Long.MAX_VALUE : latest + 1000L;
     }
 
     // =============================================================

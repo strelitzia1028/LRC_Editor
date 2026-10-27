@@ -52,6 +52,7 @@ import java.util.prefs.Preferences;
 
 public class LrcEditorApp extends Application {
 
+    private static final String APP_VERSION = "v5.6";
     private static final double WAVE_WINDOW_SEC = 10.0;
     private static final double PLAYHEAD_LERP  = 0.25;
     private static final double CENTER_LERP    = 0.15;
@@ -76,6 +77,8 @@ public class LrcEditorApp extends Application {
     private static final String PREF_LYRIC_ADVANCE_MS = "lyricAdvanceMs";
     private static final String PREF_PREVIEW_PLAYING_COLOR = "previewPlayingColor";
     private static final String PREF_APPEARANCE_THEME = "appearanceTheme";
+    private static final String PREF_CONTENT_MOVE_MODE = "contentMoveMode";
+    private static final String PREF_LEGACY_CONTENT_MOVE_TRANSFER = "contentMoveTransfer";
     private static final String DARK_THEME_STYLESHEET = "/styles/dark-theme.css";
 
     private static final double SPEED_STOP  = 0.0;
@@ -96,6 +99,7 @@ public class LrcEditorApp extends Application {
     private ExecutorService bgExecutor;
     private boolean bomOnExport = false;
     private int lyricAdvanceMs = 0;
+    private int contentMoveMode = LrcDocument.MOVE_MODE_TRANSFER;
     private double  borderOpacity = DEFAULT_BORDER_OPACITY;
 
     // ============ 波形视图动画状态 ============
@@ -142,10 +146,14 @@ public class LrcEditorApp extends Application {
     private Button syncJumpBtn;
     private Button autoSelectBtn;
     private Button autoExpandBtn;
+    private Button contentMoveModeBtn;
     private ProgressBar waveProgress;
 
     private Menu          rotationSpeedMenu;
     private CheckMenuItem recordHighlightItem;
+    private RadioMenuItem contentMoveTransferItem;
+    private RadioMenuItem contentMoveSwapItem;
+    private RadioMenuItem contentMoveOverwriteItem;
     private RadioMenuItem lightAppearanceItem;
     private RadioMenuItem darkAppearanceItem;
     private Menu previewColorMenu;
@@ -159,6 +167,7 @@ public class LrcEditorApp extends Application {
     public void start(Stage stage) {
         lyricAdvanceMs = Math.max(0,
                 preferences.getInt(PREF_LYRIC_ADVANCE_MS, 0));
+        contentMoveMode = loadContentMoveMode();
         bgExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread t = new Thread(r, "lrceditor-bg");
             t.setDaemon(true);
@@ -866,6 +875,27 @@ public class LrcEditorApp extends Application {
         add(edit, "自定义插入 N 行…",                     this::showInsertRowsDialog);
         add(edit, "粘贴多行歌词",                          this::pasteMultilineLyrics);
         add(edit, "删除选中行  (Ctrl+D)",                 this::deleteSelectedLines);
+        add(edit, "选中歌词内容上移一格",                  () -> moveSelectedContent(-1));
+        add(edit, "选中歌词内容下移一格",                  () -> moveSelectedContent(1));
+        Menu contentMoveModeMenu = new Menu("内容移动模式");
+        ToggleGroup contentMoveModeGroup = new ToggleGroup();
+        contentMoveTransferItem = new RadioMenuItem("转移（留下 0 ms 空行）");
+        contentMoveSwapItem = new RadioMenuItem("交换（推挤重叠行）");
+        contentMoveOverwriteItem = new RadioMenuItem("覆盖（直接替换目标行）");
+        contentMoveTransferItem.setToggleGroup(contentMoveModeGroup);
+        contentMoveSwapItem.setToggleGroup(contentMoveModeGroup);
+        contentMoveOverwriteItem.setToggleGroup(contentMoveModeGroup);
+        contentMoveTransferItem.setOnAction(
+                e -> setContentMoveMode(LrcDocument.MOVE_MODE_TRANSFER));
+        contentMoveSwapItem.setOnAction(
+                e -> setContentMoveMode(LrcDocument.MOVE_MODE_SWAP));
+        contentMoveOverwriteItem.setOnAction(
+                e -> setContentMoveMode(LrcDocument.MOVE_MODE_OVERWRITE));
+        contentMoveModeMenu.getItems().addAll(
+                contentMoveTransferItem, contentMoveSwapItem,
+                contentMoveOverwriteItem);
+        edit.getItems().add(contentMoveModeMenu);
+        setContentMoveMode(contentMoveMode);
         add(edit, "批量偏移选中时间戳…  (Ctrl+Shift+T)", this::shiftSelectedTimestamps);
         edit.getItems().add(new SeparatorMenuItem());
         add(edit, "修改 offset",                          this::showOffsetDialog);
@@ -949,7 +979,7 @@ public class LrcEditorApp extends Application {
 
         Menu about = new Menu("关于");
         add(about, "关于 LRC 编辑器", () ->
-                alert("LRC 歌词编辑器 v5.3\n"
+                alert("LRC 歌词编辑器 " + APP_VERSION + "\n"
                               + "JDK 17 + JavaFX 21\n"
                               + "内置 jflac 解码器\n\n"
                               + "by 忆昔风依旧"));
@@ -1130,7 +1160,9 @@ public class LrcEditorApp extends Application {
     // 使用说明
     // =====================================================================
     private void showUsageGuide() {
-        showTextDialog("使用说明", "LRC 歌词编辑器 —— 使用说明", buildUsageText());
+        showTextDialog("使用说明",
+                "LRC 歌词编辑器 " + APP_VERSION + " —— 使用说明",
+                buildUsageText());
     }
 
     private void showShortcutsOnly() {
@@ -1165,9 +1197,12 @@ public class LrcEditorApp extends Application {
     private String buildUsageText() {
         return """
                 ================================================================
-                  LRC 歌词编辑器 · 使用说明
+                  LRC 歌词编辑器 v5.6 · 使用说明
                   by 忆昔风依旧
                 ================================================================
+
+                本说明适用于 v5.6 桌面版。建议先按“基本流程”完成一次完整操作，
+                再根据需要使用歌词编辑、自动同步和一键生成视频功能。
 
                 一、基本流程
                 ----------------------------------------------------------------
@@ -1183,6 +1218,23 @@ public class LrcEditorApp extends Application {
                   · 再次单击同一行：进入编辑。
                   · 编辑时按 Enter：提交并退出编辑。
                   · 列表焦点下按 Enter：从当前选中行开始播放。
+                  · Shift+单击：连续选择多行；Ctrl+单击：逐行增加或取消选择。
+                  · Ctrl+A：选择全部非空歌词行。
+                  · Ctrl+Z 撤销，Ctrl+Y 重做；批量操作会作为一步撤销。
+                  · “歌词内容上移一格 / 下移一格”：只移动选中行的歌词文字，
+                    时间戳位置不变，可用 Ctrl+Z 一次撤销。
+                    第一行上移时会新增 0 ms 行存放原第一行内容；最后一行下移时
+                    会新增比末尾时间戳晚 1 秒的行存放原最后一行内容。
+                  · 上移/下移下方的“转移/交换/覆盖”模式按钮，也可在
+                    “编辑 → 内容移动模式”中选择：
+                    转移模式为默认值：从选中行开始，沿移动方向的相邻行
+                    会依次被顶到上方或下方，并在原位置留下时间戳为 0 的空行。
+                    上移会在顶部补 0 ms 行，下移会在底部补末尾时间戳 +1 秒行。
+                    如果目标位置原本就是空歌词行，则直接移入空行，等同于覆盖，
+                    不会额外新增 0 ms 行。
+                    交换模式会推挤重叠行，把目标行内容移到腾空位置，避免丢失。
+                    覆盖模式会直接用选中内容覆盖目标行，原位置保留原时间戳。
+                    模式选择会自动保存。
                   · “自动选择同组”：单击一行即可选中相同时间戳的全部歌词。
                   · “自动扩选 N 行”：单击后向下扩选 N 个可见歌词行。
                     可输入 0 到 10；0 表示关闭，到达文件末尾时自动停止。
@@ -1204,6 +1256,8 @@ public class LrcEditorApp extends Application {
                   · 单击波形：跳转到对应时间。
                   · 单击绿色 ▶：跳到该时间戳组。
                   · 播放结束后，波形会平滑回到开头。
+                  · 导入较大的 FLAC 时，波形分析可能需要一段时间；界面会显示进度，
+                    请等待完成后再进行精细定位。
 
                 四、顶部滚动歌词预览
                 ----------------------------------------------------------------
@@ -1234,9 +1288,10 @@ public class LrcEditorApp extends Application {
                       - 直接显示：到时间点直接出现，不闪烁、不淡入淡出。
                       - 单句渐显渐隐：当前句平滑出现，再平滑消失。
                     · 正常滚动模式
-                      - 上下滚动：保持三行歌词，下一句到来前快速向上滚动。
+                      - 上下滚动：同屏显示 1 到 10 行歌词（默认 3 行），下一句到来前快速向上滚动。
 
                   滚动设置：
+                    · 同屏行数可填写 1 到 10；当前播放行保持在可见区域中部。
                     · 滚动速度可留空使用自动值，也可填写倍率。
                       1.0 为标准，2.0 为两倍速，0.5 为半速。
                     · 字号、行距可留空自动适配，也可手动输入。
@@ -1277,6 +1332,7 @@ public class LrcEditorApp extends Application {
                   视频默认保存优先级：
                     用户自定义路径 > 歌曲所在目录 > 歌词所在目录
                   未导入歌曲时保存到歌词目录；未导入歌词时使用用户目录。
+                  点击输出路径右侧的“选择…”可随时覆盖默认路径。
                   软件会记住上次打开或保存文件的目录，下次打开文件对话框时复用。
 
                 八、保存与导出
@@ -1297,10 +1353,24 @@ public class LrcEditorApp extends Application {
                   · 质感区域提供独立的“恢复默认”。
                   · 恢复默认不会删除歌词、音轨或已选择的文件。
                   · 默认会恢复背景、质感、分辨率、帧率、字体、颜色等设置。
+                   · 同屏行数会恢复为默认 3 行。
                   · 截取片段会关闭，恢复为完整歌曲导出。
 
+                十、常见问题
+                ----------------------------------------------------------------
+                  · 打点后歌词没有高亮：确认该行有时间戳，并检查“自定义提前 N ms”。
+                  · 无法选中其他行：如果刚跳到新歌词组，“自动同步”只会同步一次；
+                    稍后仍可正常手动选择并编辑其他行。
+                  · 自动选择冲突：关闭“自动选择同组”，或把“自动扩选”设为 0。
+                  · 视频预览没有声音：点击预览右下角的小喇叭解除静音；
+                    该按钮不影响导出的音轨。
+                  · 视频生成失败：确认目标目录可写，并检查软件目录中的 FFmpeg 是否完整。
+                  · 视频中途取消：未完成的 MP4 会自动删除，不会占用输出目录。
+                  · 大文件导入较慢：FLAC 需要解码并分析波形，长音频请耐心等待。
+
                 ================================================================
-                  详细边界情况请见：使用说明 → 重要注意事项
+                  版本：v5.6
+                  详细边界情况请见：使用说明 → 快捷键速查 / 重要注意事项
                 ================================================================
                 """;
     }
@@ -1477,6 +1547,11 @@ public class LrcEditorApp extends Application {
         Button bInsertMany  = sidebarButton("自定义插入 2 行");
         Button bPaste       = sidebarButton("粘贴多行歌词");
         Button bDeleteLine  = sidebarButton("删除选中行");
+        Button bMoveUp      = sidebarButton("歌词内容上移一格");
+        Button bMoveDown    = sidebarButton("歌词内容下移一格");
+        contentMoveModeBtn  = sidebarButton(contentMoveModeLabel());
+        contentMoveModeBtn.setTooltip(new Tooltip(
+                "点击按“转移 → 交换 → 覆盖”切换内容移动模式。"));
         Button bShift       = sidebarButton("批量偏移时间戳");
         playPauseBtn        = sidebarButton("▶ 播放");
         Button bOffset      = sidebarButton("修改 offset");
@@ -1538,6 +1613,10 @@ public class LrcEditorApp extends Application {
         bInsertMany.setOnAction(e -> showInsertRowsDialog());
         bPaste.setOnAction(e -> pasteMultilineLyrics());
         bDeleteLine.setOnAction(e -> deleteSelectedLines());
+        bMoveUp.setOnAction(e -> moveSelectedContent(-1));
+        bMoveDown.setOnAction(e -> moveSelectedContent(1));
+        contentMoveModeBtn.setOnAction(
+                e -> setContentMoveMode((contentMoveMode + 1) % 3));
         bShift.setOnAction(e -> shiftSelectedTimestamps());
         playPauseBtn.setOnAction(e -> togglePlay());
         bOffset.setOnAction(e -> showOffsetDialog());
@@ -1550,7 +1629,8 @@ public class LrcEditorApp extends Application {
                 sidebarSeparator(), sidebarSection("打点与定位"),
                 bMark, bJump, syncJumpBtn, bAdvance, autoSelectBtn, autoExpandBtn,
                 sidebarSeparator(), sidebarSection("编辑"),
-                bInsertLine, bInsertMany, bPaste, bDeleteLine, bShift,
+                bInsertLine, bInsertMany, bPaste, bDeleteLine,
+                bMoveUp, bMoveDown, contentMoveModeBtn, bShift,
                 sidebarSeparator(), sidebarSection("播放与输出"),
                 playPauseBtn, bOffset, chunkToggleBtn, bExport);
 
@@ -2108,6 +2188,79 @@ public class LrcEditorApp extends Application {
         }
         refreshStatus();
         lyricView.requestFocus();
+    }
+
+    private void moveSelectedContent(int direction) {
+        List<Integer> selected = lyricView.getSelectedLyricIndices();
+        if (selected.isEmpty()) {
+            alert("请先在歌词列表里选中至少一行");
+            return;
+        }
+
+        List<Integer> moved = doc.moveContentMany(
+                selected, direction, contentMoveMode);
+        if (moved.isEmpty()) {
+            alert("当前选中行没有可移动的歌词内容");
+            return;
+        }
+
+        lyricView.getSelectionModel().clearSelection();
+        for (int index : moved) lyricView.getSelectionModel().select(index);
+        refreshAll();
+        lyricView.requestFocus();
+    }
+
+    private void setContentMoveMode(int mode) {
+        contentMoveMode = Math.max(LrcDocument.MOVE_MODE_TRANSFER,
+                Math.min(LrcDocument.MOVE_MODE_OVERWRITE, mode));
+        if (contentMoveTransferItem != null) {
+            contentMoveTransferItem.setSelected(
+                    contentMoveMode == LrcDocument.MOVE_MODE_TRANSFER);
+            contentMoveSwapItem.setSelected(
+                    contentMoveMode == LrcDocument.MOVE_MODE_SWAP);
+            contentMoveOverwriteItem.setSelected(
+                    contentMoveMode == LrcDocument.MOVE_MODE_OVERWRITE);
+        }
+        if (contentMoveModeBtn != null) {
+            contentMoveModeBtn.setText(contentMoveModeLabel());
+        }
+        try {
+            preferences.put(PREF_CONTENT_MOVE_MODE, contentMoveModeKey());
+            preferences.remove(PREF_LEGACY_CONTENT_MOVE_TRANSFER);
+            preferences.flush();
+        } catch (Exception ignored) {
+            // The selected mode still applies for the current session.
+        }
+    }
+
+    private int loadContentMoveMode() {
+        String saved = preferences.get(PREF_CONTENT_MOVE_MODE, null);
+        if ("swap".equals(saved)) return LrcDocument.MOVE_MODE_SWAP;
+        if ("overwrite".equals(saved)) return LrcDocument.MOVE_MODE_OVERWRITE;
+        if ("transfer".equals(saved)) return LrcDocument.MOVE_MODE_TRANSFER;
+        String legacy = preferences.get(PREF_LEGACY_CONTENT_MOVE_TRANSFER, null);
+        if (legacy != null) {
+            return Boolean.parseBoolean(legacy)
+                    ? LrcDocument.MOVE_MODE_SWAP
+                    : LrcDocument.MOVE_MODE_OVERWRITE;
+        }
+        return LrcDocument.MOVE_MODE_TRANSFER;
+    }
+
+    private String contentMoveModeKey() {
+        if (contentMoveMode == LrcDocument.MOVE_MODE_SWAP) return "swap";
+        if (contentMoveMode == LrcDocument.MOVE_MODE_OVERWRITE) return "overwrite";
+        return "transfer";
+    }
+
+    private String contentMoveModeLabel() {
+        if (contentMoveMode == LrcDocument.MOVE_MODE_SWAP) {
+            return "转移/交换/覆盖：交换";
+        }
+        if (contentMoveMode == LrcDocument.MOVE_MODE_OVERWRITE) {
+            return "转移/交换/覆盖：覆盖";
+        }
+        return "转移/交换/覆盖：转移";
     }
 
     private void shiftSelectedTimestamps() {

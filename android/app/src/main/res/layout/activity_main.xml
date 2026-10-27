@@ -274,6 +274,30 @@
                 android:textAllCaps="false" />
 
             <Button
+                android:id="@+id/moveUpButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="6dp"
+                android:text="@string/move_content_up"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/moveDownButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="6dp"
+                android:text="@string/move_content_down"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/moveModeButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="6dp"
+                android:text="@string/move_mode_transfer"
+                android:textAllCaps="false" />
+
+            <Button
                 android:id="@+id/playFromLineButton"
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"

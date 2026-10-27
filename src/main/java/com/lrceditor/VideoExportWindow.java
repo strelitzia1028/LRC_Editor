@@ -114,6 +114,8 @@ public class VideoExportWindow {
     private TextField lineSpacingField;
     private TextField nonCurrentShrinkField;
     private HBox nonCurrentShrinkRow;
+    private TextField visibleLineCountField;
+    private HBox visibleLineCountRow;
     private TextField scrollSpeedField;
     private HBox scrollSpeedRow;
     private TextField outputField;
@@ -308,12 +310,19 @@ public class VideoExportWindow {
         nonCurrentShrinkField.setPromptText("自动（推荐）");
         nonCurrentShrinkField.setTooltip(new Tooltip(
                 "非当前行相对当前行缩小多少像素；范围 0 到 当前字号-1，留空自动。"));
+        visibleLineCountField = new TextField("3");
+        visibleLineCountField.setTooltip(new Tooltip(
+                "上下滚动时同屏显示的歌词条目数；范围 1 到 10，默认 3。"));
         scrollSpeedField = new TextField();
         scrollSpeedField.setPromptText("自动（推荐）");
         scrollSpeedField.setTooltip(new Tooltip(
                 "滚动速度倍率：1.0 为标准，2.0 为两倍速，0.5 为半速。"));
+        visibleLineCountRow = formRow("同屏行数", visibleLineCountField);
         scrollSpeedRow = formRow("滚动速度", scrollSpeedField);
         nonCurrentShrinkRow = formRow("非当前行缩小", nonCurrentShrinkField);
+        visibleLineCountField.textProperty().addListener((o, ov, nv) -> {
+            if (previewCanvas != null) drawPreview(previewPositionSeconds);
+        });
 
         outputField = new TextField();
         outputField.setPromptText("输出文件路径");
@@ -330,6 +339,7 @@ public class VideoExportWindow {
                 sectionLabel("歌词动效"),
                 formRow("主效果", mainEffectCombo),
                 formRow("细分效果", subEffectCombo),
+                visibleLineCountRow,
                 scrollSpeedRow,
                 new Separator(),
                 sectionLabel("视频背景"),
@@ -666,6 +676,8 @@ public class VideoExportWindow {
         subEffectCombo.getSelectionModel().selectFirst();
         nonCurrentShrinkRow.setVisible(!direct);
         nonCurrentShrinkRow.setManaged(!direct);
+        visibleLineCountRow.setVisible(!direct);
+        visibleLineCountRow.setManaged(!direct);
         scrollSpeedRow.setVisible(!direct);
         scrollSpeedRow.setManaged(!direct);
     }
@@ -761,6 +773,7 @@ public class VideoExportWindow {
         fontSizeField.clear();
         lineSpacingField.clear();
         nonCurrentShrinkField.clear();
+        visibleLineCountField.setText("3");
         scrollSpeedField.clear();
         resetTextureDefaults();
         trimToggle.setSelected(false);
@@ -1121,7 +1134,7 @@ public class VideoExportWindow {
         gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
         gc.setTextBaseline(javafx.geometry.VPos.CENTER);
         if ("上下滚动模式".equals(sub)) {
-            drawVerticalThreeLinePreview(gc, cues, index, time, start, end);
+            drawVerticalScrollPreview(gc, cues, index, time, start, end);
             return;
         }
         if ("左右滚动模式".equals(sub)) {
@@ -1147,7 +1160,7 @@ public class VideoExportWindow {
         gc.setGlobalAlpha(1);
     }
 
-    private void drawVerticalThreeLinePreview(
+    private void drawVerticalScrollPreview(
             GraphicsContext gc,
             List<Cue> cues,
             int index,
@@ -1163,75 +1176,67 @@ public class VideoExportWindow {
         double transitionStart = Math.max(start, end - moveSeconds);
         double progress = Math.max(0, Math.min(1,
                 (time - transitionStart) / moveSeconds));
-        PreviewMetrics from = previewMetrics(cues, index);
-        PreviewMetrics to = index + 1 < cues.size()
-                ? previewMetrics(cues, index + 1)
-                : from;
+        VerticalPreviewLayout from = verticalPreviewLayout(cues, index);
         Color muted = Color.web("#94A3B8");
         Color currentColor = textColorPicker.getValue();
-        boolean transitioning = time >= transitionStart && index + 1 < cues.size();
-        boolean firstHalf = transitioning && progress < 0.5;
-        double halfProgress = transitioning
-                ? (progress < 0.5 ? progress * 2 : (progress - 0.5) * 2)
-                : 0;
-        double currentMid = (from.currentCenter + to.previousCenter) / 2.0;
-        double nextMid = (from.nextCenter + to.currentCenter) / 2.0;
-
-        if (index > 0 && (!transitioning || firstHalf)) {
-            double previousY = firstHalf
-                    ? lerp(from.previousCenter,
-                           from.previousCenter - from.nonCurrentLineHeight * 0.75,
-                           halfProgress)
-                    : from.previousCenter;
-            drawPreviewText(gc, cues.get(index - 1).text,
-                    previewWidth / 2, previousY, muted,
-                    from.nonCurrentFontSize, from.lineSpacing);
-        }
-
-        double currentY;
-        if (!transitioning) {
-            currentY = from.currentCenter;
-        } else if (firstHalf) {
-            currentY = lerp(from.currentCenter, currentMid, halfProgress);
-        } else {
-            currentY = lerp(currentMid, to.previousCenter, halfProgress);
-        }
-        double currentFont = transitioning
-                ? lerp(from.currentFontSize, to.nonCurrentFontSize, progress)
-                : from.currentFontSize;
-        Color currentFill = transitioning
-                ? currentColor.interpolate(muted, progress)
-                : currentColor;
-        drawPreviewText(gc, cues.get(index).text,
-                previewWidth / 2, currentY, currentFill,
-                currentFont, from.lineSpacing);
-
-        if (index + 1 < cues.size()) {
-            double y;
-            if (!transitioning) {
-                y = from.nextCenter;
-            } else if (firstHalf) {
-                y = lerp(from.nextCenter, nextMid, halfProgress);
-            } else {
-                y = lerp(nextMid, to.currentCenter, halfProgress);
+        if (time < transitionStart || index + 1 >= cues.size()) {
+            for (VerticalPreviewSlot slot : from.slots) {
+                drawPreviewText(gc, cues.get(slot.entryIndex).text,
+                        previewWidth / 2, slot.centerY,
+                        slot.current ? currentColor : muted,
+                        slot.fontSize, from.lineSpacing);
             }
-            double fontSize = transitioning
-                    ? lerp(from.nonCurrentFontSize, to.currentFontSize, progress)
-                    : from.nonCurrentFontSize;
-            Color fill = transitioning
-                    ? muted.interpolate(currentColor, progress)
-                    : muted;
-            drawPreviewText(gc, cues.get(index + 1).text,
-                    previewWidth / 2, y, fill, fontSize, from.lineSpacing);
+            return;
         }
-        if (transitioning && !firstHalf && index + 2 < cues.size()) {
-            int lines = Math.max(1, lineCount(cues.get(index + 1).text));
-            double enterY = from.nextCenter
-                            + lines * from.nonCurrentLineHeight + from.gap;
-            double y = lerp(enterY, to.nextCenter, halfProgress);
-            drawPreviewText(gc, cues.get(index + 2).text,
-                    previewWidth / 2, y, muted,
-                    to.nonCurrentFontSize, from.lineSpacing);
+
+        VerticalPreviewLayout to = verticalPreviewLayout(cues, index + 1);
+        java.util.Map<Integer, VerticalPreviewSlot> oldSlots = from.byIndex();
+        java.util.Map<Integer, VerticalPreviewSlot> newSlots = to.byIndex();
+        java.util.TreeSet<Integer> union = new java.util.TreeSet<>();
+        union.addAll(oldSlots.keySet());
+        union.addAll(newSlots.keySet());
+        double offscreenShift = Math.max(previewHeight,
+                Math.max(from.totalHeight, to.totalHeight) * 1.15);
+
+        for (int entryIndex : union) {
+            VerticalPreviewSlot oldSlot = oldSlots.get(entryIndex);
+            VerticalPreviewSlot newSlot = newSlots.get(entryIndex);
+            double fromY;
+            double toY;
+            double fromFont;
+            double toFont;
+            Color fromColor;
+            Color toColor;
+
+            if (oldSlot != null && newSlot != null) {
+                fromY = oldSlot.centerY;
+                toY = newSlot.centerY;
+                fromFont = oldSlot.fontSize;
+                toFont = newSlot.fontSize;
+                fromColor = oldSlot.current ? currentColor : muted;
+                toColor = newSlot.current ? currentColor : muted;
+            } else if (oldSlot != null) {
+                fromY = oldSlot.centerY;
+                toY = oldSlot.centerY - offscreenShift;
+                fromFont = oldSlot.fontSize;
+                toFont = oldSlot.fontSize;
+                fromColor = oldSlot.current ? currentColor : muted;
+                toColor = fromColor;
+            } else {
+                fromY = newSlot.centerY + offscreenShift;
+                toY = newSlot.centerY;
+                fromFont = newSlot.current
+                        ? to.nonCurrentFontSize : newSlot.fontSize;
+                toFont = newSlot.fontSize;
+                fromColor = muted;
+                toColor = newSlot.current ? currentColor : muted;
+            }
+
+            double y = lerp(fromY, toY, progress);
+            double fontSize = lerp(fromFont, toFont, progress);
+            Color fill = fromColor.interpolate(toColor, progress);
+            drawPreviewText(gc, cues.get(entryIndex).text,
+                    previewWidth / 2, y, fill, fontSize, from.lineSpacing);
         }
     }
 
@@ -1307,6 +1312,74 @@ public class VideoExportWindow {
         for (int i = 0; i < lines.length; i++) {
             gc.fillText(lines[i], x, firstY + i * lineHeight);
         }
+    }
+
+    private VerticalPreviewLayout verticalPreviewLayout(
+            List<Cue> cues, int currentIndex) {
+        int visibleCount = visibleLineCount();
+        int above = (visibleCount - 1) / 2;
+        int[] indices = new int[visibleCount];
+        int[] counts = new int[visibleCount];
+        for (int i = 0; i < visibleCount; i++) {
+            int entryIndex = currentIndex - above + i;
+            indices[i] = entryIndex >= 0 && entryIndex < cues.size()
+                    ? entryIndex : -1;
+            counts[i] = indices[i] >= 0
+                    ? Math.max(1, lineCount(cues.get(indices[i]).text)) : 1;
+        }
+
+        int videoHeight = parseResolution(resolutionCombo.getValue())[1];
+        double scale = previewHeight / (double) videoHeight;
+        int manualFont = parseOptionalInt(fontSizeField, 0);
+        int manualSpacing = parseOptionalInt(lineSpacingField, -1);
+        int manualReduction = parseOptionalInt(nonCurrentShrinkField, -1);
+        double font = manualFont > 0
+                ? manualFont * scale
+                : previewHeight * 0.052;
+        double nonCurrentFont = reducedFont(font, manualReduction);
+        double spacing = manualSpacing >= 0
+                ? manualSpacing * scale
+                : Math.max(1, font * 0.12);
+        double available = previewHeight * 0.78;
+        double currentLineHeight;
+        double nonCurrentLineHeight;
+        double gap;
+        double totalHeight;
+        do {
+            currentLineHeight = font * 1.35 + spacing;
+            nonCurrentLineHeight = nonCurrentFont * 1.35 + spacing;
+            gap = Math.max(7, font * 0.55);
+            totalHeight = 0;
+            for (int i = 0; i < visibleCount; i++) {
+                totalHeight += counts[i] * (i == above
+                        ? currentLineHeight : nonCurrentLineHeight);
+                if (i + 1 < visibleCount) totalHeight += gap;
+            }
+            if (totalHeight <= available) break;
+            font = Math.max(8, font - 1);
+            nonCurrentFont = reducedFont(font, manualReduction);
+            if (manualSpacing < 0) spacing = Math.max(1, font * 0.12);
+        } while (font > 8);
+
+        double top = Math.max(previewHeight * 0.06,
+                (previewHeight - totalHeight) / 2.0);
+        List<VerticalPreviewSlot> slots = new ArrayList<>();
+        double cursor = top;
+        for (int i = 0; i < visibleCount; i++) {
+            boolean current = i == above;
+            double lineHeight = current
+                    ? currentLineHeight : nonCurrentLineHeight;
+            double slotHeight = counts[i] * lineHeight;
+            if (indices[i] >= 0) {
+                slots.add(new VerticalPreviewSlot(indices[i],
+                        cursor + slotHeight / 2.0,
+                        current ? font : nonCurrentFont,
+                        current));
+            }
+            cursor += slotHeight + gap;
+        }
+        return new VerticalPreviewLayout(slots, font, nonCurrentFont,
+                spacing, totalHeight);
     }
 
     private PreviewMetrics previewMetrics(List<Cue> cues, int index) {
@@ -1501,6 +1574,7 @@ public class VideoExportWindow {
         int fontSize = parseOptionalInt(fontSizeField, 0);
         int lineSpacing = parseOptionalInt(lineSpacingField, -1);
         int nonCurrentReduction = parseOptionalInt(nonCurrentShrinkField, -1);
+        int visibleLines = visibleLineCount();
         double scrollSpeed = parseOptionalDouble(scrollSpeedField, 0);
         LyricVideoExporter.TextureMode textureMode = switch (textureModeCombo.getValue()) {
             case "暗色+玻璃磨砂" -> LyricVideoExporter.TextureMode.GLASS_DARK;
@@ -1520,7 +1594,7 @@ public class VideoExportWindow {
                 exportBackground, duration, awtColor, fontSize, lineSpacing,
                 nonCurrentReduction, textureMode, blurPercent,
                 grainPercent, darkOpacityPercent, trimStart, trimEnd, scrollSpeed,
-                albumCoverFitCombo.getValue());
+                albumCoverFitCombo.getValue(), visibleLines);
 
         exportCancelRequested.set(false);
         progressBar.setVisible(true);
@@ -1579,6 +1653,7 @@ public class VideoExportWindow {
         fontSizeField.setDisable(disabled);
         lineSpacingField.setDisable(disabled);
         nonCurrentShrinkField.setDisable(disabled);
+        visibleLineCountField.setDisable(disabled);
         scrollSpeedField.setDisable(disabled);
         resetButton.setDisable(disabled);
         textureModeCombo.setDisable(disabled);
@@ -1608,6 +1683,11 @@ public class VideoExportWindow {
         } catch (NumberFormatException ex) {
             return defaultValue;
         }
+    }
+
+    private int visibleLineCount() {
+        int count = parseOptionalInt(visibleLineCountField, 3);
+        return Math.max(1, Math.min(10, count));
     }
 
     private double parseOptionalDouble(TextField field, double defaultValue) {
@@ -1688,5 +1768,29 @@ public class VideoExportWindow {
             double previousCenter,
             double currentCenter,
             double nextCenter) {
+    }
+
+    private record VerticalPreviewSlot(
+            int entryIndex,
+            double centerY,
+            double fontSize,
+            boolean current) {
+    }
+
+    private record VerticalPreviewLayout(
+            List<VerticalPreviewSlot> slots,
+            double currentFontSize,
+            double nonCurrentFontSize,
+            double lineSpacing,
+            double totalHeight) {
+
+        private java.util.Map<Integer, VerticalPreviewSlot> byIndex() {
+            java.util.Map<Integer, VerticalPreviewSlot> result =
+                    new java.util.LinkedHashMap<>();
+            for (VerticalPreviewSlot slot : slots) {
+                result.put(slot.entryIndex(), slot);
+            }
+            return result;
+        }
     }
 }

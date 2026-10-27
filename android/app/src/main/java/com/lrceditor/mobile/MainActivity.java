@@ -23,6 +23,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.provider.DocumentsContract;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -46,6 +47,7 @@ import com.lrceditor.mobile.audio.AudioSession;
 import com.lrceditor.mobile.audio.WaveformExtractor;
 import com.lrceditor.mobile.model.LrcDocument;
 import com.lrceditor.mobile.model.LrcExportFormatter;
+import com.lrceditor.mobile.model.LrcFileNames;
 import com.lrceditor.mobile.model.LrcIo;
 import com.lrceditor.mobile.model.LrcPasteParser;
 import com.lrceditor.mobile.model.LyricLine;
@@ -80,6 +82,9 @@ public final class MainActivity extends Activity {
     private static final String PREF_AUTO_EXPAND = "auto_expand";
     private static final String PREF_PREVIEW_COLOR = "preview_color";
     private static final String PREF_ADVANCE_MS = "lyric_advance_ms";
+    private static final String PREF_CONTENT_MOVE_MODE = "content_move_mode";
+    private static final String PREF_LEGACY_CONTENT_MOVE_TRANSFER =
+            "content_move_transfer";
     private static final String STATE_DOCUMENT = "document_text";
     private static final String STATE_LRC_URI = "lrc_uri";
     private static final String STATE_LRC_NAME = "lrc_name";
@@ -108,9 +113,11 @@ public final class MainActivity extends Activity {
     private int autoExpand;
     private int lyricAdvanceMs;
     private int previewColor;
+    private int contentMoveMode = LrcDocument.MOVE_MODE_TRANSFER;
     private boolean userSeeking;
     private int waveformRequest;
     private String pendingExportText;
+    private String pendingLrcFileName;
 
     private Uri lrcUri;
     private Uri audioUri;
@@ -146,6 +153,9 @@ public final class MainActivity extends Activity {
     private Button insertRowsButton;
     private Button pasteLyricsButton;
     private Button deleteLineButton;
+    private Button moveUpButton;
+    private Button moveDownButton;
+    private Button moveModeButton;
     private Button playFromLineButton;
     private Button undoButton;
     private Button redoButton;
@@ -179,6 +189,7 @@ public final class MainActivity extends Activity {
         autoExpand = Math.max(0, Math.min(10,
                 preferences.getInt(PREF_AUTO_EXPAND, 0)));
         lyricAdvanceMs = Math.max(0, preferences.getInt(PREF_ADVANCE_MS, 0));
+        contentMoveMode = loadContentMoveMode();
         previewColor = preferences.getInt(PREF_PREVIEW_COLOR,
                 darkMode ? Color.WHITE : Color.BLACK);
 
@@ -217,6 +228,9 @@ public final class MainActivity extends Activity {
         insertRowsButton = findViewById(R.id.insertRowsButton);
         pasteLyricsButton = findViewById(R.id.pasteLyricsButton);
         deleteLineButton = findViewById(R.id.deleteLineButton);
+        moveUpButton = findViewById(R.id.moveUpButton);
+        moveDownButton = findViewById(R.id.moveDownButton);
+        moveModeButton = findViewById(R.id.moveModeButton);
         playFromLineButton = findViewById(R.id.playFromLineButton);
         undoButton = findViewById(R.id.undoButton);
         redoButton = findViewById(R.id.redoButton);
@@ -295,6 +309,9 @@ public final class MainActivity extends Activity {
         insertRowsButton.setOnClickListener(v -> showInsertRowsDialog());
         pasteLyricsButton.setOnClickListener(v -> pasteMultilineLyrics());
         deleteLineButton.setOnClickListener(v -> deleteSelectedLines());
+        moveUpButton.setOnClickListener(v -> moveSelectedContent(-1));
+        moveDownButton.setOnClickListener(v -> moveSelectedContent(1));
+        moveModeButton.setOnClickListener(v -> showMoveModeDialog());
         playFromLineButton.setOnClickListener(v -> playFromSelection());
         undoButton.setOnClickListener(v -> undo());
         redoButton.setOnClickListener(v -> redo());
@@ -359,6 +376,9 @@ public final class MainActivity extends Activity {
         styleButton(insertRowsButton, false);
         styleButton(pasteLyricsButton, false);
         styleButton(deleteLineButton, false);
+        styleButton(moveUpButton, false);
+        styleButton(moveDownButton, false);
+        styleButton(moveModeButton, false);
         styleButton(playFromLineButton, false);
         styleButton(undoButton, false);
         styleButton(redoButton, false);
@@ -369,6 +389,7 @@ public final class MainActivity extends Activity {
 
         lyricList.setBackgroundColor(palette.list);
         seekBar.setProgressTintList(ColorStateList.valueOf(palette.accent));
+        updateMoveModeButton();
         seekBar.setThumbTintList(ColorStateList.valueOf(palette.accent));
         waveformView.setDark(darkMode);
         recordView.setDark(darkMode);
@@ -512,16 +533,16 @@ public final class MainActivity extends Activity {
     private void createLyricsDocument(boolean export) {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("text/plain");
-        String name = baseName(lrcName != null ? lrcName
-                : audioName != null ? audioName : "lyrics");
-        intent.putExtra(Intent.EXTRA_TITLE,
-                (TextUtils.isEmpty(name) ? "lyrics" : name) + ".lrc");
+        intent.setType(LrcFileNames.MIME_TYPE);
+        String sourceName = lrcName != null
+                ? lrcName : audioName != null ? audioName : "lyrics";
+        pendingLrcFileName = LrcFileNames.withLrcExtension(sourceName);
+        intent.putExtra(Intent.EXTRA_TITLE, pendingLrcFileName);
         startActivityForResult(intent, export ? REQUEST_EXPORT_LRC : REQUEST_SAVE_LRC);
     }
 
     private void saveLyrics(boolean export) {
-        if (lrcUri == null) {
+        if (lrcUri == null || !LrcFileNames.hasLrcExtension(lrcName)) {
             createLyricsDocument(export);
             return;
         }
@@ -659,8 +680,18 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            if (requestCode == REQUEST_SAVE_LRC
+                    || requestCode == REQUEST_EXPORT_LRC) {
+                pendingLrcFileName = null;
+            }
+            return;
+        }
         Uri uri = data.getData();
+        if (requestCode == REQUEST_SAVE_LRC || requestCode == REQUEST_EXPORT_LRC) {
+            uri = ensureLrcDocumentName(uri);
+            pendingLrcFileName = null;
+        }
         persistPermission(uri, data.getFlags());
         if (requestCode == REQUEST_OPEN_LRC) {
             loadLyrics(uri);
@@ -669,6 +700,23 @@ public final class MainActivity extends Activity {
         } else if (requestCode == REQUEST_SAVE_LRC || requestCode == REQUEST_EXPORT_LRC) {
             writeLyrics(uri, requestCode == REQUEST_EXPORT_LRC,
                     displayName(uri));
+        }
+    }
+
+    private Uri ensureLrcDocumentName(Uri uri) {
+        String currentName = displayName(uri);
+        if (LrcFileNames.hasLrcExtension(currentName)) return uri;
+        if (!DocumentsContract.isDocumentUri(this, uri)) return uri;
+
+        String desiredName = pendingLrcFileName != null
+                ? pendingLrcFileName : LrcFileNames.withLrcExtension(currentName);
+        try {
+            Uri renamed = DocumentsContract.renameDocument(
+                    getContentResolver(), uri, desiredName);
+            return renamed != null ? renamed : uri;
+        } catch (Exception error) {
+            toast("无法将文件扩展名改为 .lrc");
+            return uri;
         }
     }
 
@@ -1016,6 +1064,85 @@ public final class MainActivity extends Activity {
         adapter.notifyDataSetChanged();
         lyricList.setSelectionFromTop(firstVisible, top);
         updateAllUi();
+    }
+
+    private void moveSelectedContent(int direction) {
+        if (selection.isEmpty()) {
+            toast("请先选择至少一行歌词");
+            return;
+        }
+        int firstVisible = lyricList.getFirstVisiblePosition();
+        View firstChild = lyricList.getChildAt(0);
+        int top = firstChild == null ? 0 : firstChild.getTop();
+        List<Integer> moved = document.moveContentMany(
+                sortedSelection(), direction, contentMoveMode);
+        if (moved.isEmpty()) {
+            toast("当前选中行没有可移动的歌词内容");
+            return;
+        }
+        selection.clear();
+        selection.addAll(moved);
+        adapter.notifyDataSetChanged();
+        lyricList.setSelectionFromTop(firstVisible, top);
+        updateAllUi();
+    }
+
+    private void updateMoveModeButton() {
+        if (moveModeButton == null) return;
+        if (contentMoveMode == LrcDocument.MOVE_MODE_SWAP) {
+            moveModeButton.setText(R.string.move_mode_swap);
+        } else if (contentMoveMode == LrcDocument.MOVE_MODE_OVERWRITE) {
+            moveModeButton.setText(R.string.move_mode_overwrite);
+        } else {
+            moveModeButton.setText(R.string.move_mode_transfer);
+        }
+    }
+
+    private void showMoveModeDialog() {
+        String[] labels = {
+                getString(R.string.move_mode_transfer),
+                getString(R.string.move_mode_swap),
+                getString(R.string.move_mode_overwrite)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(getString(R.string.move_mode_title))
+                .setSingleChoiceItems(labels, contentMoveMode,
+                        (dialog, which) -> {
+                            setContentMoveMode(which);
+                            dialog.dismiss();
+                        })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void setContentMoveMode(int mode) {
+        contentMoveMode = Math.max(LrcDocument.MOVE_MODE_TRANSFER,
+                Math.min(LrcDocument.MOVE_MODE_OVERWRITE, mode));
+        preferences.edit()
+                .putString(PREF_CONTENT_MOVE_MODE, contentMoveModeKey())
+                .remove(PREF_LEGACY_CONTENT_MOVE_TRANSFER)
+                .apply();
+        updateMoveModeButton();
+    }
+
+    private int loadContentMoveMode() {
+        String saved = preferences.getString(PREF_CONTENT_MOVE_MODE, "");
+        if ("swap".equals(saved)) return LrcDocument.MOVE_MODE_SWAP;
+        if ("overwrite".equals(saved)) return LrcDocument.MOVE_MODE_OVERWRITE;
+        if ("transfer".equals(saved)) return LrcDocument.MOVE_MODE_TRANSFER;
+        if (preferences.contains(PREF_LEGACY_CONTENT_MOVE_TRANSFER)) {
+            return preferences.getBoolean(
+                    PREF_LEGACY_CONTENT_MOVE_TRANSFER, true)
+                    ? LrcDocument.MOVE_MODE_SWAP
+                    : LrcDocument.MOVE_MODE_OVERWRITE;
+        }
+        return LrcDocument.MOVE_MODE_TRANSFER;
+    }
+
+    private String contentMoveModeKey() {
+        if (contentMoveMode == LrcDocument.MOVE_MODE_SWAP) return "swap";
+        if (contentMoveMode == LrcDocument.MOVE_MODE_OVERWRITE) return "overwrite";
+        return "transfer";
     }
 
     private void undo() {
@@ -1480,10 +1607,10 @@ public final class MainActivity extends Activity {
     private void showAbout() {
         new AlertDialog.Builder(this)
                 .setTitle("关于")
-                .setMessage("LRC 歌词编辑器 Android 版 1.0.0\n\n"
+                .setMessage("LRC 歌词编辑器 Android 版 v5.6\n\n"
                         + "原生 Android 界面\n"
                         + "支持 LRC 编辑、音频播放、打点和波形定位\n\n"
-                        + "桌面版 v5.3")
+                        + "与桌面版 v5.6 使用同一版本号")
                 .setPositiveButton("关闭", null)
                 .show();
     }
@@ -1511,12 +1638,6 @@ public final class MainActivity extends Activity {
         }
         String fallback = uri.getLastPathSegment();
         return fallback == null ? "未命名" : fallback;
-    }
-
-    private String baseName(String name) {
-        if (name == null) return "";
-        int dot = name.lastIndexOf('.');
-        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     private void toast(String message) {

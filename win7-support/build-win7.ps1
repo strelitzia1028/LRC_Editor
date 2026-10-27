@@ -101,7 +101,7 @@ $packagerCommand = '"' + $packager + '" -deploy -native image ' +
     '-name "LRC Editor Win7" -appclass com.lrceditor.LrcEditorApp ' +
     '-srcdir "' + $stageDir + '" -srcfiles "LRC-Editor-Win7.jar" ' +
     '-outdir "' + $deployDir + '" -outfile "LRC Editor Win7" ' +
-    '-BmainJar=LRC-Editor-Win7.jar -BappVersion=5.3 ' +
+    '-BmainJar=LRC-Editor-Win7.jar -BappVersion=5.6 ' +
     '-Bicon="' + $IconFile + '"'
 & cmd.exe /d /s /c $packagerCommand
 if ($LASTEXITCODE -ne 0) {

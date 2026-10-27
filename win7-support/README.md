@@ -1,6 +1,6 @@
 # LRC Editor Win7 Support
 
-This directory is an independent Windows 7 build of LRC Editor v5.3. The main
+This directory is an independent Windows 7 build of LRC Editor v5.6. The main
 JavaFX 21 project remains unchanged.
 
 ## Compatibility baseline
