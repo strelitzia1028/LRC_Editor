@@ -10,6 +10,10 @@ public final class LrcFileNames {
     }
 
     public static String withLrcExtension(String name) {
+        return withExtension(name, "lrc");
+    }
+
+    public static String withExtension(String name, String extension) {
         String candidate = cleanName(name);
         if (candidate.isEmpty()) candidate = "lyrics";
 
@@ -17,21 +21,28 @@ public final class LrcFileNames {
         do {
             stripped = false;
             String lower = candidate.toLowerCase(Locale.ROOT);
-            if (lower.endsWith(".lrc")) {
-                candidate = candidate.substring(0, candidate.length() - 4).trim();
-                stripped = true;
-            } else if (lower.endsWith(".txt")) {
-                candidate = candidate.substring(0, candidate.length() - 4).trim();
-                stripped = true;
+            String[] known = {".lrc", ".txt", ".srt", ".ass"};
+            for (String suffix : known) {
+                if (lower.endsWith(suffix)) {
+                    candidate = candidate.substring(
+                            0, candidate.length() - suffix.length()).trim();
+                    stripped = true;
+                    break;
+                }
             }
         } while (stripped);
 
         if (candidate.isEmpty()) candidate = "lyrics";
-        return candidate + ".lrc";
+        return candidate + "." + extension;
     }
 
     public static boolean hasLrcExtension(String name) {
-        return cleanName(name).toLowerCase(Locale.ROOT).endsWith(".lrc");
+        return hasExtension(name, "lrc");
+    }
+
+    public static boolean hasExtension(String name, String extension) {
+        return cleanName(name).toLowerCase(Locale.ROOT)
+                .endsWith("." + extension.toLowerCase(Locale.ROOT));
     }
 
     private static String cleanName(String name) {

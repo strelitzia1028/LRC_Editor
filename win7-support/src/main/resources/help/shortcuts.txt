@@ -3,10 +3,11 @@
 ================================================================
 
 【文件】
-  Ctrl + O            导入歌词（.lrc / .txt）
+  Ctrl + O            导入歌词或字幕（.lrc / .txt / .srt / .ass）
   Ctrl + Shift + O    导入音频（.mp3 / .wav / .flac）
+  拖入文件            等效导入；可同时拖入一个音频和一个歌词/字幕
   Ctrl + S            保存
-  Ctrl + Shift + S    另存为
+  Ctrl + Shift + S    导出歌词 / 字幕
 
 【编辑】
   Ctrl + Z            撤销

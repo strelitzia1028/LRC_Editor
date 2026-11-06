@@ -40,17 +40,22 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.SeekBar;
 import android.widget.ScrollView;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
+import android.widget.AdapterView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.lrceditor.mobile.audio.AudioSession;
 import com.lrceditor.mobile.audio.WaveformExtractor;
 import com.lrceditor.mobile.model.LrcDocument;
-import com.lrceditor.mobile.model.LrcExportFormatter;
 import com.lrceditor.mobile.model.LrcFileNames;
 import com.lrceditor.mobile.model.LrcIo;
 import com.lrceditor.mobile.model.LrcPasteParser;
 import com.lrceditor.mobile.model.LyricLine;
+import com.lrceditor.mobile.model.LyricExportFormat;
+import com.lrceditor.mobile.model.LyricExportFormatter;
+import com.lrceditor.mobile.model.LyricImportParser;
 import com.lrceditor.mobile.ui.LyricAdapter;
 import com.lrceditor.mobile.ui.UiPalette;
 import com.lrceditor.mobile.view.RecordView;
@@ -118,6 +123,8 @@ public final class MainActivity extends Activity {
     private int waveformRequest;
     private String pendingExportText;
     private String pendingLrcFileName;
+    private LyricExportFormat pendingExportFormat = LyricExportFormat.LRC;
+    private String pendingDocumentExtension = "lrc";
 
     private Uri lrcUri;
     private Uri audioUri;
@@ -423,11 +430,10 @@ public final class MainActivity extends Activity {
     private void showMenu(View anchor) {
         List<String> labels = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
-        addMenuAction(labels, actions, "导入歌词", this::openLyricsDocument);
+        addMenuAction(labels, actions, "导入歌词 / 字幕", this::openLyricsDocument);
         addMenuAction(labels, actions, "导入音频", this::openAudioDocument);
-        addMenuAction(labels, actions, "保存歌词", () -> saveLyrics(false));
-        addMenuAction(labels, actions, "另存为", () -> createLyricsDocument(false));
-        addMenuAction(labels, actions, "导出歌词", this::showExportDialog);
+        addMenuAction(labels, actions, "保存歌词", this::saveLyrics);
+        addMenuAction(labels, actions, "导出歌词 / 字幕", this::showExportDialog);
         addMenuAction(labels, actions, "新建文档", this::confirmNewDocument);
         addMenuAction(labels, actions, document.canUndo() ? "撤销" : "撤销（无可用记录）",
                 this::undo);
@@ -530,23 +536,26 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_OPEN_AUDIO);
     }
 
-    private void createLyricsDocument(boolean export) {
+    private void createLyricsDocument(boolean export, LyricExportFormat format) {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(LrcFileNames.MIME_TYPE);
+        intent.setType(format.mimeType);
         String sourceName = lrcName != null
                 ? lrcName : audioName != null ? audioName : "lyrics";
-        pendingLrcFileName = LrcFileNames.withLrcExtension(sourceName);
+        pendingExportFormat = format;
+        pendingDocumentExtension = format.extension;
+        pendingLrcFileName = LrcFileNames.withExtension(
+                sourceName, format.extension);
         intent.putExtra(Intent.EXTRA_TITLE, pendingLrcFileName);
         startActivityForResult(intent, export ? REQUEST_EXPORT_LRC : REQUEST_SAVE_LRC);
     }
 
-    private void saveLyrics(boolean export) {
+    private void saveLyrics() {
         if (lrcUri == null || !LrcFileNames.hasLrcExtension(lrcName)) {
-            createLyricsDocument(export);
+            showExportDialog();
             return;
         }
-        writeLyrics(lrcUri, export, lrcName);
+        writeLyrics(lrcUri, false, lrcName);
     }
 
     private void writeLyrics(Uri uri, boolean export, String displayName) {
@@ -583,6 +592,23 @@ public final class MainActivity extends Activity {
         rootBox.setOrientation(LinearLayout.VERTICAL);
         rootBox.setPadding(dp(20), dp(10), dp(20), dp(10));
 
+        TextView formatTitle = new TextView(this);
+        formatTitle.setText("导出格式");
+        formatTitle.setTextColor(palette.muted);
+        formatTitle.setTextSize(12);
+        rootBox.addView(formatTitle);
+
+        Spinner formatSpinner = new Spinner(this);
+        List<String> formatLabels = new ArrayList<>();
+        for (LyricExportFormat format : LyricExportFormat.values()) {
+            formatLabels.add(format.label);
+        }
+        ArrayAdapter<String> formatAdapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_dropdown_item, formatLabels);
+        formatSpinner.setAdapter(formatAdapter);
+        rootBox.addView(formatSpinner, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
         TextView pathTitle = new TextView(this);
         pathTitle.setText("保存路径");
         pathTitle.setTextColor(palette.muted);
@@ -606,13 +632,37 @@ public final class MainActivity extends Activity {
         rootBox.addView(pathRow);
 
         Button mergeButton = new Button(this);
+        mergeButton.setTextSize(16);
         styleButton(mergeButton, false);
         rootBox.addView(mergeButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
+        TextView separatorTitle = new TextView(this);
+        separatorTitle.setText("网易云多语分隔");
+        separatorTitle.setTextColor(palette.muted);
+        separatorTitle.setTextSize(12);
+        rootBox.addView(separatorTitle);
+        Spinner separatorSpinner = new Spinner(this);
+        ArrayAdapter<String> separatorAdapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"窄空格 U+2009", "普通空格 U+0020", "斜杠 /"});
+        separatorSpinner.setAdapter(separatorAdapter);
+        rootBox.addView(separatorSpinner, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        TextView assSizeTitle = new TextView(this);
+        assSizeTitle.setText("ASS 字幕字号");
+        assSizeTitle.setTextColor(palette.muted);
+        assSizeTitle.setTextSize(12);
+        rootBox.addView(assSizeTitle);
+        EditText assSizeInput = new EditText(this);
+        assSizeInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        assSizeInput.setText("48");
+        assSizeInput.setTextColor(palette.text);
+        rootBox.addView(assSizeInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
         TextView hint = new TextView(this);
-        hint.setText("合并后相同歌词内容会放在首次出现的位置，"
-                + "所有时间戳按从小到大写入同一行。");
         hint.setTextColor(palette.muted);
         hint.setTextSize(12);
         hint.setPadding(0, dp(8), 0, dp(8));
@@ -648,27 +698,102 @@ public final class MainActivity extends Activity {
         rootBox.addView(actions);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("导出 LRC 歌词")
+                .setTitle("导出歌词 / 字幕")
                 .setView(rootBox)
                 .create();
-        Runnable refresh = () -> {
+
+        Runnable updateFormatControls = () -> {
+            LyricExportFormat format =
+                    LyricExportFormat.values()[formatSpinner.getSelectedItemPosition()];
+            boolean lrc = format == LyricExportFormat.LRC
+                    || format == LyricExportFormat.NETEASE_LRC;
+            boolean netease = format == LyricExportFormat.NETEASE_LRC;
+            boolean ass = format == LyricExportFormat.ASS;
+            mergeButton.setVisibility(lrc ? View.VISIBLE : View.GONE);
+            separatorTitle.setVisibility(netease ? View.VISIBLE : View.GONE);
+            separatorSpinner.setVisibility(netease ? View.VISIBLE : View.GONE);
+            assSizeTitle.setVisibility(ass ? View.VISIBLE : View.GONE);
+            assSizeInput.setVisibility(ass ? View.VISIBLE : View.GONE);
+            if (format == LyricExportFormat.NETEASE_LRC) {
+                hint.setText("同时间戳多语歌词合并为一行；"
+                        + "U+2009 是窄空格，U+0020 是普通空格。");
+            } else if (format == LyricExportFormat.SRT) {
+                hint.setText("同时间戳歌词合并；多语内容分行，"
+                        + "结束时间为下一句开始。");
+            } else if (format == LyricExportFormat.ASS) {
+                hint.setText("生成带分辨率、字体、字号和白色描边的 ASS 字幕。");
+            } else {
+                hint.setText("合并模式会把相同歌词内容的时间戳合并到首次位置。");
+            }
+        };
+
+        Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            LyricExportFormat format =
+                    LyricExportFormat.values()[formatSpinner.getSelectedItemPosition()];
+            LyricExportFormatter.Options options = new LyricExportFormatter.Options();
+            options.format = format;
+            options.mergeDuplicateText = merge[0];
+            options.separator = String.valueOf(separatorSpinner.getSelectedItem());
+            try {
+                options.assFontSize = Integer.parseInt(
+                        assSizeInput.getText().toString().trim());
+            } catch (NumberFormatException ignored) {
+                options.assFontSize = 48;
+            }
             mergeButton.setText(merge[0]
                     ? "合并/分离相同时间戳：合并"
                     : "合并/分离相同时间戳：分离");
-            preview.setText(LrcExportFormatter.buildText(document, merge[0]));
+            preview.setText(LyricExportFormatter.build(document, options));
         };
         mergeButton.setOnClickListener(v -> {
             merge[0] = !merge[0];
-            refresh.run();
+            refresh[0].run();
+        });
+        AdapterView.OnItemSelectedListener formatListener =
+                new AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view,
+                                               int position, long id) {
+                        updateFormatControls.run();
+                        refresh[0].run();
+                    }
+
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                    }
+                };
+        formatSpinner.setOnItemSelectedListener(formatListener);
+        separatorSpinner.setOnItemSelectedListener(formatListener);
+        assSizeInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(android.text.Editable s) {
+                refresh[0].run();
+            }
         });
         cancelButton.setOnClickListener(v -> dialog.dismiss());
         exportButton.setOnClickListener(v -> {
-            pendingExportText = LrcExportFormatter.buildText(document, merge[0]);
+            LyricExportFormat format =
+                    LyricExportFormat.values()[formatSpinner.getSelectedItemPosition()];
+            LyricExportFormatter.Options options = new LyricExportFormatter.Options();
+            options.format = format;
+            options.mergeDuplicateText = merge[0];
+            options.separator = String.valueOf(separatorSpinner.getSelectedItem());
+            try {
+                options.assFontSize = Integer.parseInt(
+                        assSizeInput.getText().toString().trim());
+            } catch (NumberFormatException ignored) {
+                options.assFontSize = 48;
+            }
+            pendingExportText = LyricExportFormatter.build(document, options);
+            pendingExportFormat = format;
             dialog.dismiss();
-            createLyricsDocument(true);
+            createLyricsDocument(true, format);
         });
         pathButton.setOnClickListener(v -> exportButton.performClick());
-        refresh.run();
+        updateFormatControls.run();
+        refresh[0].run();
         dialog.show();
         Window window = dialog.getWindow();
         if (window != null) {
@@ -684,12 +809,13 @@ public final class MainActivity extends Activity {
             if (requestCode == REQUEST_SAVE_LRC
                     || requestCode == REQUEST_EXPORT_LRC) {
                 pendingLrcFileName = null;
+                pendingExportText = null;
             }
             return;
         }
         Uri uri = data.getData();
         if (requestCode == REQUEST_SAVE_LRC || requestCode == REQUEST_EXPORT_LRC) {
-            uri = ensureLrcDocumentName(uri);
+            uri = ensureDocumentName(uri);
             pendingLrcFileName = null;
         }
         persistPermission(uri, data.getFlags());
@@ -703,19 +829,23 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private Uri ensureLrcDocumentName(Uri uri) {
+    private Uri ensureDocumentName(Uri uri) {
         String currentName = displayName(uri);
-        if (LrcFileNames.hasLrcExtension(currentName)) return uri;
+        if (LrcFileNames.hasExtension(currentName, pendingDocumentExtension)) {
+            return uri;
+        }
         if (!DocumentsContract.isDocumentUri(this, uri)) return uri;
 
         String desiredName = pendingLrcFileName != null
-                ? pendingLrcFileName : LrcFileNames.withLrcExtension(currentName);
+                ? pendingLrcFileName
+                : LrcFileNames.withExtension(
+                        currentName, pendingDocumentExtension);
         try {
             Uri renamed = DocumentsContract.renameDocument(
                     getContentResolver(), uri, desiredName);
             return renamed != null ? renamed : uri;
         } catch (Exception error) {
-            toast("无法将文件扩展名改为 .lrc");
+            toast("无法将文件扩展名改为 ." + pendingDocumentExtension);
             return uri;
         }
     }
@@ -729,9 +859,17 @@ public final class MainActivity extends Activity {
                     result = LrcIo.read(input);
                 }
                 String name = displayName(uri);
+                List<LyricLine> imported =
+                        LyricImportParser.parse(result.text, name);
+                if (imported.isEmpty()) {
+                    throw new IllegalStateException("文件中没有可导入的歌词或字幕");
+                }
+                String normalized = LyricImportParser.toLrcText(imported);
+                boolean associatedLrc = name.toLowerCase(Locale.ROOT)
+                        .endsWith(".lrc");
                 runOnUiThread(() -> {
-                    document.load(result.text);
-                    lrcUri = uri;
+                    document.load(normalized);
+                    lrcUri = associatedLrc ? uri : null;
                     lrcName = name;
                     encoding = result.encoding;
                     bom = result.hasBom;

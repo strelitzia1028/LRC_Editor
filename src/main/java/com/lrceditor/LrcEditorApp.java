@@ -196,6 +196,7 @@ public class LrcEditorApp extends Application {
         }
         applyDarkStylesheet(scene, "dark".equals(appearanceTheme));
         installAccelerators(scene, stage);
+        installFileDrop(scene, root);
 
         stage.setTitle("LRC 歌词编辑器");
         stage.setScene(scene);
@@ -388,10 +389,10 @@ public class LrcEditorApp extends Application {
     private void installAccelerators(Scene scene, Stage stage) {
         scene.getAccelerators().put(
                 new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN),
-                () -> saveLrc(false, stage));
+                () -> saveLrc(stage));
         scene.getAccelerators().put(
                 new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN),
-                () -> saveLrc(true, stage));
+                () -> exportLrc(stage));
         scene.getAccelerators().put(
                 new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN),
                 () -> importLrc(stage));
@@ -854,11 +855,11 @@ public class LrcEditorApp extends Application {
     private MenuBar buildMenuBar(Stage stage) {
         Menu file = new Menu("文件");
         add(file, "新建",                       () -> { if (confirmDiscard()) { doc.clear(); refreshAll(); } });
-        add(file, "导入歌词…  (Ctrl+O)",         () -> importLrc(stage));
+        add(file, "导入歌词 / 字幕…  (Ctrl+O)",  () -> importLrc(stage));
         add(file, "导入音频…  (Ctrl+Shift+O)",   () -> importAudio(stage));
         file.getItems().add(new SeparatorMenuItem());
-        add(file, "保存  (Ctrl+S)",              () -> saveLrc(false, stage));
-        add(file, "另存为…  (Ctrl+Shift+S)",     () -> saveLrc(true, stage));
+        add(file, "保存  (Ctrl+S)",              () -> saveLrc(stage));
+        add(file, "导出歌词 / 字幕…  (Ctrl+Shift+S)", () -> exportLrc(stage));
         file.getItems().add(new SeparatorMenuItem());
         add(file, "退出",                        () -> { if (confirmDiscard()) { bgExecutor.shutdownNow(); Platform.exit(); } });
 
@@ -1207,7 +1208,9 @@ public class LrcEditorApp extends Application {
                 一、基本流程
                 ----------------------------------------------------------------
                   1) 导入音频：Ctrl+Shift+O，等待媒体和波形准备完成。
-                  2) 导入歌词：Ctrl+O；也可以新建后手动输入。
+                  2) 导入歌词或字幕：Ctrl+O；支持 LRC、网易云多语 LRC、
+                     SRT 和 ASS，导入后自动转换为可编辑的普通 LRC 行。
+                     也可以直接把音频、歌词或字幕文件拖入主窗口。
                   3) 在列表中选择行，播放到目标位置后按 Space 或 Ctrl+T 打时间戳。
                   4) 使用 Ctrl+S 保存歌词。
                   5) 需要视频时，打开“视频 → 一键生成视频”。
@@ -1338,8 +1341,14 @@ public class LrcEditorApp extends Application {
                 八、保存与导出
                 ----------------------------------------------------------------
                   · Ctrl+S：保存歌词。
-                  · Ctrl+Shift+S：另存为。
-                  · “导出歌词”会打开导出窗口：可修改保存路径，预览只读文本，并可选择合并/分离相同内容的时间戳。
+                  · Ctrl+Shift+S：打开导出歌词 / 字幕窗口。
+                  · “导出歌词 / 字幕”可选择 LRC、网易云多语 LRC、SRT 或 ASS。
+                  · 导入 SRT/ASS 后会转换为普通 LRC；不会绑定原字幕文件，
+                    可继续编辑并通过统一导出窗口重新选择格式。
+                  · 网易云多语 LRC 默认可使用窄空格合并相同时间戳歌词。
+                  · SRT 和 ASS 会自动按下一时间戳生成字幕结束时间。
+                  · ASS 可设置分辨率、字体、字号、颜色和描边。
+                  · 仍可选择合并/分离相同内容的时间戳。
                   · 合并时相同歌词内容按首次出现位置排列，所有时间戳从小到大写入同一行。
                   · 导出预览支持 Ctrl+滚轮缩放字号；预览下方显示当前字号，并可点击“重置”恢复默认字号。
                   · “视图 → 导出时写入 UTF-8 BOM”用于兼容老播放器。
@@ -1382,10 +1391,11 @@ public class LrcEditorApp extends Application {
                 ================================================================
 
                 【文件】
-                  Ctrl + O            导入歌词（.lrc / .txt）
+                  Ctrl + O            导入歌词或字幕（.lrc / .txt / .srt / .ass）
                   Ctrl + Shift + O    导入音频（.mp3 / .wav / .flac）
+                  拖入文件            等效导入；可同时拖入一个音频和一个歌词/字幕
                   Ctrl + S            保存
-                  Ctrl + Shift + S    另存为
+                  Ctrl + Shift + S    导出歌词 / 字幕
 
                 【编辑】
                   Ctrl + Z            撤销
@@ -1535,7 +1545,7 @@ public class LrcEditorApp extends Application {
         box.setFillWidth(true);
         box.setPadding(new Insets(12, 12, 16, 12));
 
-        Button bImportLrc   = sidebarButton("导入歌词");
+        Button bImportLrc   = sidebarButton("导入歌词 / 字幕");
         Button bImportAudio = sidebarButton("导入音频");
         Button bMark        = sidebarButton("生成时间标记");
         Button bJump        = sidebarButton("跳到光标时间戳");
@@ -1556,7 +1566,7 @@ public class LrcEditorApp extends Application {
         playPauseBtn        = sidebarButton("▶ 播放");
         Button bOffset      = sidebarButton("修改 offset");
         chunkToggleBtn      = sidebarButton("时间分块 / 统合");
-        Button bExport      = sidebarButton("导出歌词");
+        Button bExport      = sidebarButton("导出歌词 / 字幕");
 
         bImportLrc.getStyleClass().add("is-outline");
         bImportAudio.getStyleClass().add("is-outline");
@@ -2000,15 +2010,32 @@ public class LrcEditorApp extends Application {
 
     private void importLrc(Stage stage) {
         FileChooser fc = new FileChooser();
-        fc.setTitle("选择 LRC 文件");
-        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("LRC 歌词", "*.lrc", "*.txt"));
+        fc.setTitle("选择歌词或字幕文件");
+        fc.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter(
+                        "歌词与字幕", "*.lrc", "*.txt", "*.srt", "*.ass"),
+                new FileChooser.ExtensionFilter("LRC / TXT 歌词", "*.lrc", "*.txt"),
+                new FileChooser.ExtensionFilter("SRT 字幕", "*.srt"),
+                new FileChooser.ExtensionFilter("ASS 字幕", "*.ass"));
         configureFileChooserDirectory(fc);
         File f = fc.showOpenDialog(stage);
         if (f == null) return;
+        importLrcFile(f);
+    }
+
+    private void importLrcFile(File f) {
         rememberLastDirectory(f);
         try {
             LrcIo.ReadResult r = LrcIo.read(f);
-            doc.load(r.text, f);
+            List<LyricLine> imported =
+                    LyricImportParser.parse(r.text, f.getName());
+            if (imported.isEmpty()) {
+                throw new IllegalStateException("文件中没有可导入的歌词或字幕");
+            }
+            String normalized = LyricImportParser.toLrcText(imported);
+            String lowerName = f.getName().toLowerCase(Locale.ROOT);
+            File associatedLrc = lowerName.endsWith(".lrc") ? f : null;
+            doc.load(normalized, associatedLrc);
             doc.setEncoding(r.encoding);
             doc.setBom(r.hasBom);
             refreshAll();
@@ -2029,6 +2056,10 @@ public class LrcEditorApp extends Application {
         configureFileChooserDirectory(fc);
         File f = fc.showOpenDialog(stage);
         if (f == null) return;
+        importAudioFile(f);
+    }
+
+    private void importAudioFile(File f) {
         rememberLastDirectory(f);
         audioFile = f;
 
@@ -2062,6 +2093,77 @@ public class LrcEditorApp extends Application {
 
         updateFileNames();
         loadCover(f);
+    }
+
+    private void installFileDrop(Scene scene, BorderPane root) {
+        scene.setOnDragOver(event -> {
+            if (event.getGestureSource() != root
+                    && event.getDragboard().hasFiles()
+                    && hasSupportedDroppedFile(event.getDragboard().getFiles())) {
+                event.acceptTransferModes(TransferMode.COPY);
+                if (!root.getStyleClass().contains("file-drop-active")) {
+                    root.getStyleClass().add("file-drop-active");
+                }
+            }
+            event.consume();
+        });
+        scene.setOnDragExited(event -> root.getStyleClass().remove("file-drop-active"));
+        scene.setOnDragDropped(event -> {
+            root.getStyleClass().remove("file-drop-active");
+            Dragboard db = event.getDragboard();
+            if (!db.hasFiles()) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
+            File audio = null;
+            File lyrics = null;
+            int supported = 0;
+            int skipped = 0;
+            for (File file : db.getFiles()) {
+                if (isAudioFile(file) && audio == null) {
+                    audio = file;
+                    supported++;
+                } else if (isLyricFile(file) && lyrics == null) {
+                    lyrics = file;
+                    supported++;
+                } else if (isAudioFile(file) || isLyricFile(file)) {
+                    skipped++;
+                } else {
+                    skipped++;
+                }
+            }
+            if (audio != null) importAudioFile(audio);
+            if (lyrics != null) importLrcFile(lyrics);
+            if (supported == 0) {
+                alert("不支持该文件。可拖入 MP3/WAV/FLAC，"
+                        + "或 LRC/TXT/SRT/ASS。");
+            } else if (skipped > 0) {
+                alert("已导入首个音频和首个歌词/字幕文件，"
+                        + "其余 " + skipped + " 个文件未处理。");
+            }
+            event.setDropCompleted(supported > 0);
+            event.consume();
+        });
+    }
+
+    private boolean hasSupportedDroppedFile(List<File> files) {
+        for (File file : files) {
+            if (isAudioFile(file) || isLyricFile(file)) return true;
+        }
+        return false;
+    }
+
+    private boolean isAudioFile(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".mp3") || name.endsWith(".wav")
+                || name.endsWith(".flac");
+    }
+
+    private boolean isLyricFile(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".lrc") || name.endsWith(".txt")
+                || name.endsWith(".srt") || name.endsWith(".ass");
     }
 
     private void resetRecordRotation() {
@@ -2432,17 +2534,11 @@ public class LrcEditorApp extends Application {
     // =====================================================================
     // 保存 / 导出
     // =====================================================================
-    private void saveLrc(boolean saveAs, Stage stage) {
+    private void saveLrc(Stage stage) {
         File target = doc.getFile();
-        if (saveAs || target == null) {
-            FileChooser fc = new FileChooser();
-            fc.setTitle("保存 LRC");
-            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("LRC 歌词", "*.lrc"));
-            fc.setInitialFileName(target != null ? target.getName() : "lyrics.lrc");
-            configureFileChooserDirectory(fc);
-            target = fc.showSaveDialog(stage);
-            if (target == null) return;
-            rememberLastDirectory(target);
+        if (target == null) {
+            exportLrc(stage);
+            return;
         }
         try {
             LrcIo.write(target, doc.serialize(false), doc.hasBom());
